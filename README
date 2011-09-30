@@ -1,1 +1,25 @@
-Taintdroid Runner
+This directory contains a prototype called TaintDroid Runner.
+
+Goal of the TaintDroid Runner is to automatically run Android applications in an
+emulated TaintDroid 2.3 environment and analyze their behavior.
+To use the TaintDroid Runner you also need the modified TaintDroid 2.3 sources. How 
+to get and build them can be found on 
+https://sites.google.com/site/taintdroid23/.
+
+The TaintDroidRunner is written in Python and comes with its main file 
+taintdroid_runner.py and a bunch of helper files.
+
+
+################################################################################
+# (c) 2011
+# Author: Daniel Baeumges dbaeumges@googlemail.com
+#
+# This program is distributed WITHOUT ANY WARRANTY.
+#
+################################################################################
+
+
+Todos and ideas:
+- Run all apps in one folder
+- For every application use new image files (initial environment)
+- Extract package out of APK
