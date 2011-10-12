@@ -6,6 +6,8 @@
 #
 ################################################################################
 
+from utils import Logger
+
 import telnetlib
 
 
@@ -84,10 +86,10 @@ class BatteryHealthState:
 # Emulator Telnet Client
 # ================================================================================ 
 class EmulatorTelnetClient:
-    def __init__(self, theHost='localhost', thePort=5554, theVerboseFlag=True):        
+    def __init__(self, theHost='localhost', thePort=5554, theLogger=Logger()):        
         self.host = theHost
         self.port = thePort
-        self.verbose = theVerboseFlag
+        self.log = theLogger
         self.tn = telnetlib.Telnet()
 
 
@@ -229,14 +231,12 @@ class EmulatorTelnetClient:
     # ================================================================================
     def __runCommand(self, theCmd):
         self.tn.open(self.host, self.port)
-        if self.verbose:
-            print 'Command to sent: %s\n' % theCmd
+        self.log.debug('Command to sent: %s\n' % theCmd)
         self.tn.write('%s\n' % theCmd)
         self.tn.write('exit\n')
         aTnOutStr = self.tn.read_all()
         self.tn.close()
-        if self.verbose:
-            print 'Command out:\n%s' % aTnOutStr
+        self.log.debug('Command out:\n%s' % aTnOutStr)
         aTnOutLineVec = aTnOutStr.rsplit('\n', 2)
         if aTnOutLineVec[2] == '':
             if aTnOutLineVec[1].startswith('OK'):

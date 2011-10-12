@@ -8,7 +8,10 @@
 ################################################################################
 
 from emulator_telnet_client import EmulatorTelnetClient
+from utils import Logger, Utils
+
 import os
+import signal
 import subprocess
 import time
 
@@ -18,13 +21,17 @@ import time
 # ================================================================================
 class EmulatorClientError(Exception):
     GENERAL_ERROR = 0
-    INSTALLATION_ERROR = 1
-    UNINSTALLATION_ERROR = 2
-    MONKEY_ERROR = 3
+    GENERAL_INSTALLATION_ERROR = 1
+    INSTALLATION_ERROR_ALREADY_EXISTS = 2
+    GENERAL_UNINSTALLATION_ERROR = 3
+    START_EMULATOR_ERROR = 4
+    ADB_RUN_ERROR = 5
+    MONKEY_ERROR = 6
     
-    def __init__(self, value, code=GENERAL_ERROR):
-        self.code = code
-        self.value = value
+    def __init__(self, theValue, theCode=GENERAL_ERROR, theBaseError=None):        
+        self.value = theValue
+        self.code = theCode
+        self.baseError = theBaseError
 
     def __str__(self):
         return repr(self.value)
@@ -32,22 +39,33 @@ class EmulatorClientError(Exception):
     def getCode(self):
         return self.code
 
-    
+
+# ================================================================================
+# Helper
+# ================================================================================
+def _overwriteSignalsForProcess():
+    """
+    Ignore the SIGINT signal by setting the handler to the standard
+    signal handler SIG_IGN.
+    """
+    os.setpgrp()
+
+        
 # ================================================================================
 # Emulator Client
 # ================================================================================
 class EmulatorClient:
-    def __init__(self, theEmulatorPath='',
-                 thePort=5554,
-                 theImageDirPath='',
-                 theAdbPath='',
-                 theAvdName=None,
-                 theVerboseFlag=True):
-        self.emulatorPath = self.__addSlashToPath(theEmulatorPath)
+    def __init__(self, theSdkPath='',
+                       thePort=5554,
+                       theImageDirPath='',
+                       theRunHeadlessFlag=False,
+                       theAvdName=None,
+                       theLogger=Logger()):
+        self.sdkPath = Utils.addSlashToPath(theSdkPath)
         self.port = thePort
-        self.imageDirPath = self.__addSlashToPath(theImageDirPath)
-        self.adbPath = self.__addSlashToPath(theAdbPath)
-        self.verbose = theVerboseFlag
+        self.imageDirPath = Utils.addSlashToPath(theImageDirPath)
+        self.runHeadless = theRunHeadlessFlag
+        self.log = theLogger
         
         self.avdName = theAvdName
 
@@ -55,66 +73,61 @@ class EmulatorClient:
 
     def __del__(self):
         if not self.emulator is None:
-            self.emulator.kill()
+            self.emulator.kill()    
 
-    def __addSlashToPath(self, thePath):
-        if thePath == '':
-            return thePath
-        if thePath[len(thePath)-1] != '/':
-            return thePath + '/'
-
-    def setEmulatorPath(self, thePath):
+    def setSdkPath(self, thePath):
         """
-        Set path to emulator binary.
-        Do ot include the emulator binary itself.
+        Set path to Android SDK.
         """
-        self.emulatorPath = self.__addSlashToPath(thePath)
+        self.sdkPath = Utils.addSlashToPath(thePath)
 
     def setImageDirPath(self, thePath):
         """
         Set path to the TaintDroid 2.3 image files like
         zImage, system.img, ramdisk.img, and sdcard.img.
         """
-        self.imageDirPath = self.__addSlashToPath(thePath)
-
-    def setAdbPath(self, thePath):
-        """
-        Set path to Android debug bridge.
-        Do not include the adb binary in the path.
-        """
-        self.adbPath = self.__addSlashToPath(thePath)
+        self.imageDirPath = Utils.addSlashToPath(thePath)    
 
     def setAvdName(self, theName):
         """
         Set name of AVD to be used.
         """
-        self.avdName = theName
+        self.avdName = theName    
 
     def start(self):
         """
         Starts the emulator with TaintDroid images
         """
-        args = ['%semulator' % self.emulatorPath]
-        if self.avdName is not None:
-            args.extend(['-avd', self.avdName])
-        args.extend(['-kernel',  '%szImage' % self.imageDirPath])
-        args.extend(['-system',  '%ssystem.img' % self.imageDirPath])
-        args.extend(['-ramdisk', '%sramdisk.img' % self.imageDirPath])
-        args.extend(['-sdcard',  '%ssdcard.img' % self.imageDirPath])
-        args.extend(['-data',  '%suserdata.img' % self.imageDirPath])
-        args.extend(['-port',    str(self.port)])
-        self.emulator = subprocess.Popen(args,
-                                         stdout=subprocess.PIPE,
-                                         stdin=subprocess.PIPE,
-                                         stderr=subprocess.PIPE)
+        self.log.info('Start emulator')
+        try:
+            args = ['%semulator' % Utils.getEmulatorPath(self.sdkPath)]
+            if self.avdName is not None:
+                args.extend(['-avd', self.avdName])
+            args.extend(['-kernel',  '%szImage' % self.imageDirPath])
+            args.extend(['-system',  '%ssystem.img' % self.imageDirPath])
+            args.extend(['-ramdisk', '%sramdisk.img' % self.imageDirPath])
+            args.extend(['-sdcard',  '%ssdcard.img' % self.imageDirPath])
+            args.extend(['-data',    '%suserdata.img' % self.imageDirPath])
+            args.extend(['-port',    str(self.port)])
+            if self.runHeadless:
+                args.extend(['-no-window'])
+            self.emulator = subprocess.Popen(args,
+                                             stdout=subprocess.PIPE,
+                                             stdin=subprocess.PIPE,
+                                             stderr=subprocess.PIPE,
+                                             preexec_fn=_overwriteSignalsForProcess)
+        except OSError, osErr:
+            raise EmulatorClientError('Failed to start emulator \'%s\': %s' % (args, osErr.strerror),
+                                      theCode=EmulatorClientError.START_EMULATOR_ERROR,
+                                      theBaseError=osErr)
         #if self.verbose:
         #    print self.emulator.communicate()
         
         # Wait until started
-        self.runSimpleAdbCommand(['wait-for-device'])
+        self.runAdbCommand(['wait-for-device'])
 
         # Set portable mode
-        self.runSimpleAdbCommand(['shell', 'setprop', 'dalvik.vm.execution-mode', 'int:portable'])
+        self.runAdbCommand(['shell', 'setprop', 'dalvik.vm.execution-mode', 'int:portable'])
 
         # Wait
         time.sleep(45)
@@ -132,21 +145,42 @@ class EmulatorClient:
         """
         Returns an instance of the EmulatorTelnetClient for the started emulator
         """
-        return EmulatorTelnetClient(thePort=self.port, theVerboseFlag=self.verbose)
+        return EmulatorTelnetClient(thePort=self.port, theLogger=self.log)
 
     def installApp(self, theApp):
         """
         Installs the provided app on the emulator
         """
-        retval = self.runSimpleAdbCommand(['install', theApp])
+        retval = self.runAdbCommand(['install', theApp])
         if retval[0].find('Success') == -1:
-            raise EmulatorClientError('Failed to install %s: %s' % (theApp, retval[0]), EmulatorClientError.INSTALLATION_ERROR)
+            if retval[0].find('INSTALL_FAILED_ALREADY_EXISTS') != -1:
+                raise EmulatorClientError('Application %s already exists.' % theApp, EmulatorClientError.INSTALLATION_ERROR_ALREADY_EXISTS)
+            else:
+                raise EmulatorClientError('Failed to install %s: %s' % (theApp, retval[0]), EmulatorClientError.GENERAL_INSTALLATION_ERROR)
 
+    def startAction(self, thePackage, theActivity):
+        """
+        Starts the specified action (without intent).
+        """
+        args = ['shell', 'am', 'start',
+                '-n', '%s/%s' % (thePackage, theActivity)]
+        self.runAdbCommand(args)
+        # adb shell am start -a android.intent.action.MAIN -n com.android.browser/.BrowserActivity
+
+    def startService(self, thePackage, theService):
+        """
+        Starts the specified service (without intent).
+        """
+        args = ['shell', 'am', 'startservice',
+                '-n', '%s/%s' % (thePackage, theService)]
+        self.runAdbCommand(args)
+        # adb shell am startservice -c android.intent.category.defult -n com.nicky.lyyws.xmall/.MainService
+    
     def uninstallPackage(self, thePackage):
         """
-        Removes the provided package from the emulator
+        Removes the provided package from the emulator.
         """
-        retval = self.runSimpleAdbCommand(['uninstall', thePackage])
+        retval = self.runAdbCommand(['uninstall', thePackage])
         if retval[0].find('Success') == -1:
             raise EmulatorClientError('Failed to uninstall %s: %s' % (thePackage, retval[0]), EmulatorClientError.UNINSTALLATION_ERROR)
 
@@ -155,15 +189,15 @@ class EmulatorClient:
         Runs monkey on the provided package
         """
         if thePackage is None:
-            if self.verbose:
-                retval = self.runSimpleAdbCommand(['shell', 'monkey', '-v', str(theEventCount)])
+            if self.log.isDebug():
+                retval = self.runAdbCommand(['shell', 'monkey', '-v', str(theEventCount)])
             else:
-                retval = self.runSimpleAdbCommand(['shell', 'monkey', str(theEventCount)])
+                retval = self.runAdbCommand(['shell', 'monkey', str(theEventCount)])
         else:
-            if self.verbose:
-                retval = self.runSimpleAdbCommand(['shell', 'monkey', '-v', '-p', thePackage, str(theEventCount)])
+            if self.log.isDebug():
+                retval = self.runAdbCommand(['shell', 'monkey', '-v', '-p', thePackage, str(theEventCount)])
             else:
-                retval = self.runSimpleAdbCommand(['shell', 'monkey', '-p', thePackage, str(theEventCount)])
+                retval = self.runAdbCommand(['shell', 'monkey', '-p', thePackage, str(theEventCount)])
 
             if retval[0].find('monkey aborted') != -1:
                 raise EmulatorClientError('Failed to run monkey on %s: %s' % (thePackage, retval[0]), EmulatorClientError.MONKEY_ERROR)
@@ -172,39 +206,36 @@ class EmulatorClient:
         """
         Returns the (full) logcat output
         """
-        log = subprocess.Popen(['%sadb' % self.adbPath, 'shell', 'logcat', '-d', '&&',
-                                '%sadb' % self.adbPath, 'shell', 'logcat', '-b', 'events', '-d', '&&',
-                                '%sadb' % self.adbPath, 'shell', 'logcat', '-b', 'radio', '-d'],
-                               stdout=subprocess.PIPE,
-                               stdin=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
-        logcat = log.communicate()[0]
-        log.wait()
+        args = ['shell', 'logcat', '-d', '&&',
+                '%sadb' % Utils.getAdbPath(self.sdkPath), 'shell', 'logcat', '-b', 'events', '-d', '&&',
+                '%sadb' % Utils.getAdbPath(self.sdkPath), 'shell', 'logcat', '-b', 'radio', '-d']
+        logcat = self.runAdbCommand(args)[0]
         return logcat
 
     def clearLog(self):
         """
         Clears the logcat output
         """
-        self.runSimpleAdbCommand(['logcat', '-c'])
+        self.runAdbCommand(['logcat', '-c'])
     
 
-    def runSimpleAdbCommand(self, theArgs):
+    def runAdbCommand(self, theArgs):
         """
         Runs a simple adb command
         """
-        args = ['%sadb' % self.adbPath]
+        args = ['%sadb' % Utils.getAdbPath(self.sdkPath)]
         args.extend(theArgs)
-        if self.verbose:
-            print 'Exec adb command: %s' % args
-            
-        adb = subprocess.Popen(args,
-                               stdout=subprocess.PIPE,
-                               stdin=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
+        self.log.debug('Exec adb command: %s' % args)
+        try:
+            adb = subprocess.Popen(args,
+                                   stdout=subprocess.PIPE,
+                                   stdin=subprocess.PIPE,
+                                   stderr=subprocess.PIPE)
+        except OSError, osErr:
+            raise EmulatorClientError('Failed to run adb command \'%s\': %s' % (args, osErr.strerror),
+                                      theCode=EmulatorClientError.ADB_RUN_ERROR,
+                                      theBaseError=osErr)
         retval = adb.communicate()
-        adb.wait()
-        
-        if self.verbose:
-            print retval        
+        adb.wait()        
+        self.log.debug('Result: %s' % str(retval))
         return retval

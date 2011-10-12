@@ -8,6 +8,7 @@
 
 import json
 
+
 # ================================================================================
 # Enum Classes
 # ================================================================================
@@ -29,6 +30,7 @@ class TaintTagEnum:
     TAINT_DEVICE_SN     = 0x2000
     TAINT_ACCOUNT       = 0x4000
     TAINT_HISTORY       = 0x8000
+    TAINT_INCOMING_DATA = 0x10000
 
     @staticmethod
     def getTaintString(theTag):
@@ -69,6 +71,8 @@ class TaintTagEnum:
                 tagString += 'Account ,'  
             if tagInt & TaintTagEnum.TAINT_HISTORY:
                 tagString += 'History, '
+            if tagInt & TaintTagEnum.TAINT_INCOMING_DATA:
+                tagString += 'Incoming, '
         if tagString[len(tagString)-2:] == ') ':
             tagString = tagString[:len(tagString)-2]
         elif tagString[len(tagString)-2:] == ', ':
@@ -107,10 +111,10 @@ class FileSystemLogEntry(BaseLogEntry):
     action = ''
     tag = TaintTagEnum.TAINT_CLEAR
     fileDescriptor = 0
-    filePath = '' # filled by cleanUp
+    filePath = '' # filled by postProcess
     data = ''
     stackTraceStr = ''
-    stackTrace = [] # filled by cleanUp
+    stackTrace = [] # filled by postProcess
 
     def getOverviewLogStr(self):
         return 'FileSystemAccess (%s), tag: %s, file: %s (%d)' % (self.action, TaintTagEnum.getTaintString(self.tag), self.filePath, self.fileDescriptor)
@@ -123,34 +127,10 @@ class NetworkSendLogEntry(BaseLogEntry):
     destination = ''
     data = ''
     stackTraceStr = ''
-    stackTrace = [] # filled by cleanUp
+    stackTrace = [] # filled by postProcess
 
     def getOverviewLogStr(self):
         return 'NetworkAccess (%s), tag: %s, destination: %s' % (self.action, TaintTagEnum.getTaintString(self.tag), self.destination)
-
-
-# ================================================================================
-# Json Error
-# ================================================================================
-class LogEntryError(Exception):
-    def __init__(self, msg, errList=[]):
-        self.msg = msg
-        self.errList = errList
-        
-    def __str__(self):
-        return repr(self.msg)
-    
-    def getMsg(self):
-        return repr(self.msg)
-    
-    def getErrList(self):
-        return self.errList
-
-class JSONSyntaxError(LogEntryError):
-    pass
-
-class JSONModelError(LogEntryError):
-    pass
 
 
 # ================================================================================

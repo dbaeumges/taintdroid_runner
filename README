@@ -19,7 +19,36 @@ taintdroid_runner.py and a bunch of helper files.
 ################################################################################
 
 
-Todos and ideas:
-- Run all apps in one folder
-- For every application use new image files (initial environment)
-- Extract package out of APK
+Version 0.1:
+------------
+* Files
+** taintdroid_runner.py: Main class for running the TaintDroid Runner. Use --help to get all options
+** emulator_client.py: Wrapper class for the emulator
+** emulator_telnet_client.py: Wrapper class for the emulator's telnet client
+** taintlog_analyzer.py: Implements log parsing and analyzing
+** taintlog_json.py: Wrapper class for all TaintDroid log entries
+
+* Features
+** Analyze one Android app and print out results
+
+* Todos and ideas
+** Run all apps in one folder
+** For every application use new image files (initial environment)
+** Extract package out of APK
+
+
+Version 0.2:
+------------
+* New files
+** apk_wrapper.py: Wrapper class for the .apk file extracing information out of the AndroidManifest.xml
+** utils.py: Helper class providing util methods as well as a common logger
+
+* New features
+** Run all apps in one folder
+** Use clean environment for every run
+** Extract package out of APK
+** Better error handling and tracing
+
+* Todos and ideas
+** Store results in database
+** Run multiple TaintDroid Runners in parallel
