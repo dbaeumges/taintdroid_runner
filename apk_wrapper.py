@@ -373,8 +373,6 @@ class APKWrapper:
                         subObj[attrName] = attrValue
                     else:
                         obj[attrName] = attrValue
-
-                    self.log.debug('Extracted attribute: %s = %s' % (attrName, attrValue))
                         
             else: # level == Level.START
                 if line.startswith('E: application'):

@@ -6,6 +6,7 @@
 #
 ################################################################################
 
+from optparse import OptionParser
 from taintlog_json import *
 from utils import Logger, LogLevel
 
@@ -15,7 +16,7 @@ import re
 # ================================================================================
 # TaintLog Analyzer Error Obejct
 # ================================================================================ 
-class TainLogAnalyzerError(Exception):  
+class TaintLogAnalyzerError(Exception):  
     def __init__(self, theValue):
         self.value = theValue
 
@@ -123,19 +124,25 @@ class TaintLogAnalyzer:
                 self.json2pyFailedList.append(jsonString)
                 self.log.error('Conversion for JSON string \'%s\' failed: %s.' % (jsonString, str(ex)))
 
-    def postProcessLogObjects(self, theDeleteFileDescriptorsFlag=True):
+    def postProcessLogObjects(self, theDeleteStaleObjectsFlag=True):
         """
         CleanUp log objects:
         - Generate stack trace vector
         - Set file path for OSFileAccess
         """
+        cipherUsageDict = {}
+
+        logEntryIndex = 0
         for logEntry in self.logEntryList:
             # Stack trace vec
-            if isinstance(logEntry, FileSystemLogEntry) or isinstance(logEntry, NetworkSendLogEntry):
+            if isinstance(logEntry, CipherUsageLogEntry) or \
+               isinstance(logEntry, FileSystemLogEntry) or \
+               isinstance(logEntry, NetworkSendLogEntry) or \
+               isinstance(logEntry, SendSmsLogEntry):
                 stackTrace = logEntry.stackTraceStr.split('||')
                 logEntry.stackTrace = stackTrace[:len(stackTrace)-1]
                 
-            # File descriptor
+            # File descriptor for FileSystemLogEntry
             if isinstance(logEntry, FileSystemLogEntry):
                 for logEntry2 in self.logEntryList:
                     if isinstance(logEntry2, FileDescriptorLogEntry):
@@ -143,13 +150,62 @@ class TaintLogAnalyzer:
                             logEntry.filePath = logEntry2.path
                             break
 
-        if theDeleteFileDescriptorsFlag:
+            # Cipher cleaning (combine inputs and outputs)
+            if isinstance(logEntry, CipherUsageLogEntry):
+                if logEntry.action == CipherActionEnum.INIT_ACTION:
+                    cipherUsageLogEntry = CipherUsageLogEntry(action=CipherActionEnum.CLEANED,
+                                                              id=logEntry.id,
+                                                              mode=logEntry.mode,
+                                                              tag=logEntry.tag,
+                                                              input='',
+                                                              output='',
+                                                              stackTraceStr=logEntry.stackTraceStr,
+                                                              stackTrace=logEntry.stackTrace,
+                                                              timestamp=logEntry.timestamp)
+                    cipherUsageDict[logEntry.id] = [cipherUsageLogEntry, [logEntryIndex]]
+
+                else: # logEntry.action != CipherActionEnum.INIT_ACTION
+                    if cipherUsageDict.has_key(logEntry.id):
+                        cipherUsageDict[logEntry.id][0].tag = TaintTagEnum.appendTaintTags(cipherUsageDict[logEntry.id][0].tag, logEntry.tag)
+                        cipherUsageDict[logEntry.id][0].input += logEntry.input
+                        cipherUsageDict[logEntry.id][0].output += logEntry.output
+                        cipherUsageDict[logEntry.id][1].append(logEntryIndex)
+                        
+                    else:
+                        # Should not happend
+                        self.log.error("CipherUsageLogEntry with action '%s' found without starting init" % logEntry.action)
+                
+            # Update index
+            logEntryIndex =+ 1
+
+
+        # Delete stale objects
+        if theDeleteStaleObjectsFlag:
+            # Collect indices
+            delLogEntryIdxList = []
+            
+            # Delete descriptors
             i = 0
-            while i < len(self.logEntryList):
-                if isinstance(self.logEntryList[i], FileDescriptorLogEntry):
-                    del self.logEntryList[i]
-                else:
-                    i += 1
+            for logEntry in self.logEntryList:
+                if isinstance(logEntry, FileDescriptorLogEntry):
+                    delLogEntryIdxList.append(i)
+                    
+                i += 1
+
+            # Cipher usage
+            for id, logEntry in cipherUsageDict.iteritems():
+                delLogEntryIdxList.extend(logEntry[1])
+
+
+            # Do drop
+            delLogEntryIdxList.sort()
+            for i in xrange(len(delLogEntryIdxList)):
+                del self.logEntryList[delLogEntryIdxList[i] - i]
+            
+
+        # Add cleaned cipher usage objects
+        for id, logEntry in cipherUsageDict.iteritems():
+            self.logEntryList.append(logEntry[0])
                 
 
     def printOverview(self):

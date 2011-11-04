@@ -34,7 +34,7 @@ class EmulatorClientError(Exception):
         self.baseError = theBaseError
 
     def __str__(self):
-        return repr(self.value)
+        return ('%d: ' % self.code) + repr(self.value)
 
     def getCode(self):
         return self.code
@@ -130,7 +130,7 @@ class EmulatorClient:
         self.runAdbCommand(['shell', 'setprop', 'dalvik.vm.execution-mode', 'int:portable'])
 
         # Wait
-        time.sleep(45)
+        time.sleep(90)
 
     def stop(self):
         """

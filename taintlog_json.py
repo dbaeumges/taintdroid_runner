@@ -12,6 +12,16 @@ import json
 # ================================================================================
 # Enum Classes
 # ================================================================================
+class CipherActionEnum:
+    INIT_ACTION = 'init'
+    UPDATE_ACTION = 'update'
+    DO_FINAL_ACTION = 'doFinal'
+    CLEANED = 'cleaned'
+
+class CipherModeEnum:
+    ENCRYTP_MODE = 1
+    DECRYPT_MODE = 2
+    
 class TaintTagEnum:
     TAINT_CLEAR		= 0x0
     TAINT_LOCATION	= 0x1       
@@ -33,11 +43,19 @@ class TaintTagEnum:
     TAINT_INCOMING_DATA = 0x10000
 
     @staticmethod
+    def appendTaintTags(theTag1, theTag2):
+        tagInt1 = int(theTag1, 16)
+        tagInt2 = int(theTag2, 16)
+        tagInt = tagInt1 | tagInt2
+        tag = "0x%X" % tagInt
+        return tag
+
+    @staticmethod
     def getTaintString(theTag):
         tagInt = int(theTag, 16)
         tagString = str(theTag) + ' ('
-        if theTag == TaintTagEnum.TAINT_CLEAR:
-            tagString += 'No Tag'
+        if tagInt == TaintTagEnum.TAINT_CLEAR:
+            tagString += 'No Tag)'
         else:
             if tagInt & TaintTagEnum.TAINT_LOCATION:
                 tagString += 'Location, '
@@ -104,6 +122,22 @@ class FileDescriptorLogEntry(BaseLogEntry):
     """
     fileDescriptor = 0
     path = ''
+
+class CipherUsageLogEntry(BaseLogEntry):
+    """
+    """
+    action = '' # CipherActionEnum
+    id = 0    
+    mode = 0 # CipherModeEnum
+    tag = TaintTagEnum.TAINT_CLEAR
+    input = ''
+    output = ''
+    stackTraceStr = ''
+    stackTrace = [] # filled by postProcess
+    timestamp = ''
+    
+    def getOverviewLogStr(self):
+        return 'CipherUsage (%s), id: %d, tag: %s, mode: %d' % (self.action, self.id, TaintTagEnum.getTaintString(self.tag), self.mode)
         
 class FileSystemLogEntry(BaseLogEntry):
     """
@@ -113,8 +147,9 @@ class FileSystemLogEntry(BaseLogEntry):
     fileDescriptor = 0
     filePath = '' # filled by postProcess
     data = ''
-    stackTraceStr = ''
+    stackTraceStr = ''    
     stackTrace = [] # filled by postProcess
+    timestamp = ''
 
     def getOverviewLogStr(self):
         return 'FileSystemAccess (%s), tag: %s, file: %s (%d)' % (self.action, TaintTagEnum.getTaintString(self.tag), self.filePath, self.fileDescriptor)
@@ -125,10 +160,27 @@ class NetworkSendLogEntry(BaseLogEntry):
     action = ''
     tag = TaintTagEnum.TAINT_CLEAR
     destination = ''
+    port = 0
     data = ''
     stackTraceStr = ''
     stackTrace = [] # filled by postProcess
+    timestamp = ''
+    
+    def getOverviewLogStr(self):
+        return 'NetworkAccess (%s), tag: %s, destination: %s:%d' % (self.action, TaintTagEnum.getTaintString(self.tag), self.destination, self.port)
 
+class SendSmsLogEntry(BaseLogEntry):
+    """
+    """
+    action = ''
+    tag = TaintTagEnum.TAINT_CLEAR
+    destination = ''
+    scAddress = ''
+    text = ''
+    stackTraceStr = ''
+    stackTrace = [] # filled by postProcess
+    timestamp = ''
+    
     def getOverviewLogStr(self):
         return 'NetworkAccess (%s), tag: %s, destination: %s' % (self.action, TaintTagEnum.getTaintString(self.tag), self.destination)
 
@@ -161,12 +213,18 @@ def _JSONDecoder(theDict):
             break
     if type == None: return theDict
 
-    if '__NetworkSendLogEntry__' == type:
-        object = NetworkSendLogEntry()
+    if '__CipherUsageLogEntry__' == type:
+        object = CipherUsageLogEntry()
     elif '__FileDescriptorLogEntry__' == type:
         object = FileDescriptorLogEntry()
     elif '__FileSystemObject__' == type:
         object = FileSystemLogEntry()
+    elif '__NetworkSendLogEntry__' == type:
+        object = NetworkSendLogEntry()
+    elif '__SendSmsLogEntry__' == type:
+        object = SendSmsLogEntry()
+    else:
+        raise Exception('Unkown type \'%s\' found' % type)
 
     if not object: return theDict
 
@@ -180,7 +238,7 @@ def _JSONDecoder(theDict):
 # ================================================================================ 
 
 class JsonFactory:
-    def py2Json(self, theObject, theIndentFlag=True):
+    def py2Json(self, theObject, theIndentFlag=False):
         if theIndentFlag:
             return json.dumps(theObject, cls=_JSONEncoder, indent=2, sort_keys=True)
         else:

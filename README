@@ -19,6 +19,38 @@ taintdroid_runner.py and a bunch of helper files.
 ################################################################################
 
 
+Version 0.3:
+------------
+* New features
+** Allow to skip simulations
+** New interactive mode
+** Prepare multi-threading
+** Logging of all network activities
+** Sent SMS are logged
+** Logging of crypto activities
+
+* Todos and ideas
+** Store results in database
+** Run multiple TaintDroid Runners in parallel
+
+
+Version 0.2:
+------------
+* New files
+** apk_wrapper.py: Wrapper class for the .apk file extracing information out of the AndroidManifest.xml
+** utils.py: Helper class providing util methods as well as a common logger
+
+* New features
+** Run all apps in one folder
+** Use clean environment for every run
+** Extract package out of APK
+** Better error handling and tracing
+
+* Todos and ideas
+** Store results in database
+** Run multiple TaintDroid Runners in parallel
+
+
 Version 0.1:
 ------------
 * Files
@@ -37,18 +69,3 @@ Version 0.1:
 ** Extract package out of APK
 
 
-Version 0.2:
-------------
-* New files
-** apk_wrapper.py: Wrapper class for the .apk file extracing information out of the AndroidManifest.xml
-** utils.py: Helper class providing util methods as well as a common logger
-
-* New features
-** Run all apps in one folder
-** Use clean environment for every run
-** Extract package out of APK
-** Better error handling and tracing
-
-* Todos and ideas
-** Store results in database
-** Run multiple TaintDroid Runners in parallel
