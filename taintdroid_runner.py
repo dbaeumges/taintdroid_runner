@@ -8,12 +8,14 @@
 ################################################################################
 
 from apk_wrapper import APKWrapper, APKWrapperError
+from common import Logger, LogLevel, LogMode, SimulationSteps
 from emulator_client import *
 from emulator_telnet_client import *
 from optparse import OptionParser
+from report_generator import ReportGenerator
 from taintlog_analyzer import TaintLogAnalyzer, TaintLogAnalyzerError
+from taintlog_json import CipherUsageLogEntry, FileSystemLogEntry, NetworkSendLogEntry, SSLLogEntry, SendSmsLogEntry
 from threading import Thread
-from utils import Logger, LogLevel
 
 import datetime
 import os
@@ -25,21 +27,23 @@ import traceback
 # ================================================================================
 # TaintDroid Runner Enums
 # ================================================================================
-class SimulationSteps:
-    INSTALL             = 1
-    START               = 2
-    MONKEY_BEFORE_GSM   = 4
-    GSM                 = 8
-    MONKEY_BEFORE_GEO   = 16
-    GEO                 = 32
-    MONKEY_BEFORE_SMS   = 64
-    SMS                 = 128
-    MONKEY_BEFORE_POWER = 256
-    POWER               = 2512    
-    MONKEY              = 1024
-    WAIT_FOR_RAW_INPUT  = 2048
+class TaintDroidRunnerMode:
+    DEFAULT_MODE     = 1
+    REPORT_MODE      = 2
+    INTERACTIVE_MODE = 3
 
-    
+    @staticmethod
+    def getModeFromString(theStr):
+        if theStr == 'default':
+            return TaintDroidRunnerMode.DEFAULT_MODE
+        elif theStr == 'interactive':
+            return TaintDroidRunnerMode.INTERACTIVE_MODE
+        elif theStr == 'report':
+            return TaintDroidRunnerMode.REPORT_MODE
+        else:
+            raise ValueError('Invalid TaintDroid Runner mode: %s' % theStr)
+
+        
 # ================================================================================
 # TaintDroid Runner Error
 # ================================================================================
@@ -55,97 +59,117 @@ class TaintDroidRunnerError(Exception):
 # TaintDroid Runner Thread
 # ================================================================================
 class RunnerThread(Thread):
-    def __init__(self, theTDRunnerMain, theAppList, theLogger):
+    def __init__(self, theTDRunnerMain, theApp, theLogger=Logger()):
         Thread.__init__(self)
 
         self.tdRunnerMain = theTDRunnerMain
-        self.appList = theAppList
+        self.app = theApp
+        self.emulatorPort = 5554
         self.log = theLogger
-        self.simulationSteps = 2047
+        self.simulationSteps = 4095
         self.numMonkeyEvents = self.tdRunnerMain.numMonkeyEvents
+        self.startTime = datetime.datetime.now()
 
-        self.resultList = []
+        self.result = {}
 
         self.cancelFlag = False # Flag for canceling run
 
     def __checkForCancelation(self):
+        """
+        Checks for the cancelation flag sent from the main program.
+        If cancel flag is set, abort execution by raising KeyboardInterrupt.
+        """
         if self.cancelFlag:
             raise KeyboardInterrupt
+
+    def getResult(self):
+        return self.result
         
     def run(self):
         """
+        Run the simulations.
         """
         # Debug infos
-        self.log.debug('simulationSteps: %d' % self.simulationSteps)
+        self.log.debug('simulationSteps: %s' % SimulationSteps.getStepsAsString(self.simulationSteps))
         self.log.debug('numMonkeyEvents: %d' % self.numMonkeyEvents)
-        
-        # Check for empty app list (interactive mode)
-        simulationSteps = self.simulationSteps
-        if len(self.appList) == 0:
-            # Fake APK
-            try:
-                app = APKWrapper('tdRunnerGeneric.apk', self.tdRunnerMain.sdkPath, self.log)
-            except:
-                pass
-
-            app.package = 'taintDroidRunner.generic.app'
-            self.appList.append(app)
-            
-            # Change simulation steps
-            simulationSteps &= ~SimulationSteps.INSTALL
-            simulationSteps &= ~SimulationSteps.START
-                
+        self.log.debug('emulatorPort: %d' % self.emulatorPort)        
+                    
         # Run apps    
-        for app in self.appList:
+        try:            
+            imageDirPath = None
+            self.log.write('Analyze app %s (%s)' % (self.app.getApkFileName(), self.app.getApkPath()))          
+            
             # Init clean image dir
-            imageDirPath = self._initCleanImageDir(self.tdRunnerMain.imageDirPath, app.getApkFileName())
-            try:
-                # Check for calcelation flag
-                self.__checkForCancelation()                
-                
-                # Start emulator
-                emulator = EmulatorClient(theSdkPath=self.tdRunnerMain.sdkPath,
-                                          theImageDirPath=imageDirPath,
-                                          theAvdName=self.tdRunnerMain.avdName,
-                                          theRunHeadlessFlag=self.tdRunnerMain.runHeadless,
-                                          theLogger=self.log)                
-                emulator.start()
+            imageDirPath = self._initCleanImageDir(self.tdRunnerMain.imageDirPath, self.app.getId(), self.app.getApkName())
 
-                # Run app
-                resultEntry, keyboardInterruptFlag = self.runApp(emulator, app, simulationSteps)
-                self.resultList.append(resultEntry)
-
-                # Stop emulator
-                emulator.stop()
+            # Init result
+            self.result['app'] = self.app
+            self.result['cleanImageDir'] = imageDirPath
+            self.result['steps'] = self.simulationSteps
+            self.result['numMonkeyEvents'] = self.numMonkeyEvents
+            self.result['sleepTime'] = self.tdRunnerMain.sleepTime
+            self.result['startTime'] = self.startTime
                 
-                # Keyboard interrupt
-                if keyboardInterruptFlag:
-                    raise KeyboardInterrupt
+            # Check for calcelation flag
+            self.__checkForCancelation()                
+                
+            # Start emulator
+            emulator = EmulatorClient(theSdkPath=self.tdRunnerMain.sdkPath,
+                                      thePort=self.emulatorPort,
+                                      theImageDirPath=imageDirPath,
+                                      theAvdName=self.tdRunnerMain.avdName,
+                                      theRunHeadlessFlag=self.tdRunnerMain.runHeadless,
+                                      theLogger=self.log)                
+            emulator.start()                
+
+            # Run app
+            keyboardInterruptFlag = self.runApp(emulator, self.app, self.simulationSteps)
+
+            # Stop emulator
+            emulator.stop()
+
+            # Print results
+            self.log.write('- App: %s (package: %s)' % (self.app.getApkFileName(), self.app.getPackage()))
+            self.log.write('- Time: %s %s - %s' % (Utils.getDateAsString(self.startTime), Utils.getTimeAsString(self.startTime), Utils.getTimeAsString(self.result['endTime'])))
+            self.result['log'].printOverview()
+                
+            # Keyboard interrupt
+            if keyboardInterruptFlag:
+                raise KeyboardInterrupt
                                 
-            except KeyboardInterrupt:
-                pass
-            except Exception, ex:
-                traceback.print_exc()
-                raise ex
-            finally:
-                # CleanUp folder
-                if self.tdRunnerMain.cleanUpImageDir:
-                    self._cleanUpImageDir(imageDirPath)
-                else:
-                    self.log.info('Image dir \'%s\' will not be removed, cleanUpImageDir flag set to false.' % imageDirPath)
+        except KeyboardInterrupt:
+            pass
+        except EmulatorClientError, ecErr:
+            pass
+        except Exception, ex:
+            traceback.print_exc()
+            raise ex
 
-        self.printResult()
+        finally:
+            # CleanUp folder
+            if self.tdRunnerMain.cleanUpImageDir:
+                self._cleanUpImageDir(imageDirPath)
+            else:
+                self.log.info('Image dir \'%s\' will not be removed, cleanUpImageDir flag set to false.' % imageDirPath)
         
 
-    def _initCleanImageDir(self, theImageDir, theAppName):
+    def _initCleanImageDir(self, theImageDir, theSampleId, theAppName):
         """
         Build a new directory with clean images.
         Also checks if all images are available.
         Return the new folder.
         """
         imageFileList = ['ramdisk.img', 'sdcard.img', 'system.img', 'userdata.img', 'zImage']
-        time = datetime.datetime.now()
-        newPath = '/tmp/%s_%s_%s' % (theAppName, Utils.getDateAsString(time), Utils.getTimeAsString(time))
+        newPath = '/tmp/%s_%06d' % (theAppName, theSampleId)
+        if os.path.exists(newPath):
+            i = 1
+            while True:
+                newPath = '/tmp/%s_%06d_%02d' % (theAppName, theSampleId, i)
+                if os.path.exists(newPath):
+                    i += 1
+                else:
+                    break
+                
         self.log.info('Create clean image dir: %s' % newPath)
         os.mkdir(newPath)
         for imageFile in imageFileList:
@@ -158,19 +182,30 @@ class RunnerThread(Thread):
         """
         Clean up the image dir.
         """
-        try:
-            shutil.rmtree(theImageDirPath, True)
-        except OSError, ose:
-            self.log.error('Error during cleaning up image dir \'%s\': %s' % (theImageDirPath, ose))
+        if not theImageDirPath is None:            
+            try:
+                shutil.rmtree(theImageDirPath, True)
+            except OSError, ose:
+                self.log.error('Error during cleaning up image dir \'%s\': %s' % (theImageDirPath, ose))    
 
-    def _storeLogAsFile(self, theLogDirPath, theFileName, theLog):
+    def _storeLogcatAsFile(self, theLogcatDirPath, theSampleId, theFileName, theLog):
         """
-        Store log in file.
+        Store logcat in file.
         """
-        if theLogDirPath != '':
-            if not os.path.exists(theLogDirPath):
-                os.mkdir(theLogDirPath)
-        logFile = open("%s%s_log.log" % (theLogDirPath, theFileName), "w")
+        if theLogcatDirPath != '':
+            if not os.path.exists(theLogcatDirPath):
+                os.mkdir(theLogcatDirPath)
+        logcatFileName = '%s%s_%06d_logcat.log' % (theLogcatDirPath, theFileName, theSampleId)
+        if os.path.exists(logcatFileName):
+            i = 1
+            while True:
+                logcatFileName = '%s%s_%06d_%02d_logcat.log' % (theLogcatDirPath, theFileName, theSampleId, i)
+                if os.path.exists(logcatFileName):
+                    i += 1
+                else:
+                    break
+        self.log.debug('Store logcat in %s' % logcatFileName)
+        logFile = open(logcatFileName, "w")
         logFile.write(theLog)
 
     def runApp(self, theEmulator, theApp, theSteps):
@@ -180,7 +215,6 @@ class RunnerThread(Thread):
         """       
         # Init
         errorList = []
-        startTime = datetime.datetime.now()
 
         # Determine monkey runs
         numMonkeyRuns = 0
@@ -204,17 +238,46 @@ class RunnerThread(Thread):
                 numMonkeyEventsLast = self.numMonkeyEvents - (numMonkeyEventsFirst * (numMonkeyRuns - 1))
         
         # Clear log
-        theEmulator.clearLog()
+        theEmulator.clearLog()        
 
         # Install app
-        self.__checkForCancelation()
         if (theSteps & SimulationSteps.INSTALL):
-            try:            
-                theEmulator.installApp(theApp.getApk())
-            except EmulatorClientError, ecErr:
-                if ecErr.getCode() != EmulatorClientError.INSTALLATION_ERROR_ALREADY_EXISTS:
-                    errorList.append(ecErr)
+            numRetries = 0
+            while True:
+                self.__checkForCancelation()
+                numRetries += 1
+                try:            
+                    theEmulator.installApp(theApp.getApk())
+                    break
+                
+                except EmulatorClientError, ecErr:
+                    errorOccuredFlag = True
+                    if ecErr.getCode() == EmulatorClientError.INSTALLATION_ERROR_ALREADY_EXISTS:
+                        break
+                    elif ecErr.getCode() == EmulatorClientError.INSTALLATION_ERROR_SYSTEM_NOT_RUNNING:
+                        if numRetries == 4:
+                            self.log.debug('Number of maximum retries reached, abort installation')
+                        else:
+                            # Wait and retry
+                            errorOccuredFlag = False
+                            waitTime = numRetries * 10
+                            self.log.debug('Installation failed as system might not be running. Wait for %dsec and try again' % waitTime)
+                            time.sleep(waitTime)
+                            continue
+                        
+                    if errorOccuredFlag: # Error occured
+                        errorList.append(ecErr)
+                    
+                        # Build result entry
+                        self.result['errorList'] =  errorList
+                        self.result['endTime'] = datetime.datetime.now()
+        
+                        # Return
+                        return False
 
+        # Switch on taint tracking
+        theEmulator.changeGlobalTaintLogState('1', True)
+                    
         # Start all services
         self.__checkForCancelation()
         if (theSteps & SimulationSteps.START):
@@ -239,6 +302,8 @@ class RunnerThread(Thread):
                 self._runGeoSimulation(theEmulator.getTelnetClient())
             if (theSteps & SimulationSteps.MONKEY_BEFORE_SMS):
                 self._runMonkey(theEmulator, theApp.getPackage(), numMonkeyEventsFirst)
+            if (theSteps & SimulationSteps.SLEEP):
+                self._runSleep()
             if (theSteps & SimulationSteps.SMS):
                 self._runSmsSimulation(theEmulator.getTelnetClient())
             if (theSteps & SimulationSteps.MONKEY_BEFORE_POWER):
@@ -247,6 +312,7 @@ class RunnerThread(Thread):
                 self._runPowerSimulation(theEmulator.getTelnetClient())
             if (theSteps & SimulationSteps.MONKEY):
                 self._runMonkey(theEmulator, theApp.getPackage(), numMonkeyEventsLast)
+                
         except KeyboardInterrupt:
             self.log.write('Keyboard interrupt detected: store log, postprocess, and finish')
             keyboardInterruptFlag = True
@@ -258,19 +324,18 @@ class RunnerThread(Thread):
             raw_input('Press to end...')
 
         # End
-        endTime = datetime.datetime.now()
-
         logAnalyzer = None
         try:
             # Store log in logfile
             log = theEmulator.getLog()
-            self._storeLogAsFile(self.tdRunnerMain.logDirPath, theApp.getApkFileName(), log)            
-
+            self._storeLogcatAsFile(self.tdRunnerMain._getLogDirPath(), theApp.getId(), theApp.getApkName(), log)
+            
             # Build LogAnalyzer
             logAnalyzer = TaintLogAnalyzer(theLogger=self.log)
             logAnalyzer.setLogString(log)
             logAnalyzer.extractLogEntries()
             logAnalyzer.postProcessLogObjects()
+            errorList.extend(logAnalyzer.getJson2PyFailedErrorList())
             
         except EmulatorClientError, ecErr:
             errorList.append(exErr)
@@ -279,28 +344,12 @@ class RunnerThread(Thread):
             errorList.append(tlaErr)
 
         # Build result entry
-        resultEntry = {'app' : theApp,
-                       'errorList' : errorList,
-                       'startTime' : startTime,
-                       'endTime': endTime,
-                       'log' : logAnalyzer}
+        self.result['errorList'] = errorList        
+        self.result['endTime'] = datetime.datetime.now()
+        self.result['log'] = logAnalyzer        
         
         # Return
-        return (resultEntry, keyboardInterruptFlag)
-
-    def printResult(self):
-        """
-        Print results
-        """
-        self.log.write('Results\n-------')
-        for result in self.resultList:
-            if isinstance(result['app'], APKWrapper):
-                self.log.write('- App: %s (package: %s)' % (result['app'].getApkFileName(), result['app'].getPackage()))
-                self.log.write('- Time: %d-%d-%d %d:%d:%d - %d:%d:%d' % (result['startTime'].year, result['startTime'].month, result['startTime'].day, result['startTime'].hour, result['startTime'].minute, result['startTime'].second, result['endTime'].hour, result['endTime'].minute, result['endTime'].second))
-                result['log'].printOverview()
-            else:
-                self.log.write('- App: %s' % result['app'])
-                self.log.write('- Error occured during extracting information from APK: %s' % str(result['errorList'][0]))
+        return keyboardInterruptFlag
 
     # ================================================================================
     # Simulations
@@ -376,6 +425,8 @@ class RunnerThread(Thread):
         time.sleep(3)
         theTelnetClient.setBatteryCapacity(75)
         time.sleep(2)
+        theTelnetClient.setBatteryCapacity(100)
+        time.sleep(2)
         theTelnetClient.setBatteryPowerState(BatteryPowerState.FULL)
         time.sleep(2)
 
@@ -396,99 +447,124 @@ class RunnerThread(Thread):
             else:
                 raise ecErr
 
+    def _runSleep(self):
+        """
+        Runs sleep.
+        Do check for cancelation every 10 seconds
+        """
+        self.log.info(' Sleep for %dsec' % self.tdRunnerMain.sleepTime)
+        
+        numRuns = self.tdRunnerMain.sleepTime / 10
+        if self.tdRunnerMain.sleepTime % 10 == 0:
+            timeFirst = self.tdRunnerMain.sleepTime / 10
+            timeLast = timeFirst
+        else:
+            timeFirst = self.tdRunnerMain.sleepTime / 10
+            timeLast = self.tdRunnerMain.sleepTime - (timeFirst * (numRuns - 1))
+
+        for i in xrange(numRuns):
+            self.__checkForCancelation()
+            if i < numRuns - 2:
+                time.sleep(timeFirst)
+            else:
+                time.sleep(timeLast)
+        
+
     
 # ================================================================================
 # TaintDroid Runner
 # ================================================================================
 class TaintDroidRunner:
-    def __init__(self, theLogger=Logger()):
+    def __init__(self, theMode, theReportPathSuffix=None, theLogPathSuffix=None, theLogger=Logger()):
         self.log = theLogger
-        
-        self.app = None
-        self.appDir = None
 
-        self.sdkPath = ''
-        self.imageDirPath = ''
-        self.avdName = None        
-        self.interactiveMode = False        
+        self.mode = TaintDroidRunnerMode.getModeFromString(theMode)
+        
+        self.app = None # app to be analyzed
+        self.appDir = None # directory in which all apps are analyzed
+
+        self.imageDirPath = '' # path to TaintDroid 2.3 image files
+        self.numThreads = 1 # number of parallell threads for analyzing
+        self.emulatorStartPort = 5554
+        self.maxThreadRuntime = 300
+
+        self.reportPathSuffix = theReportPathSuffix
+        self.reportPath = ''
+        
+        self.sdkPath = ''        
+        self.avdName = None
+
         self.runHeadless = False
+        
         self.numMonkeyEvents = 500
+        self.sleepTime = 60
         self.cleanUpImageDir = True
-        self.logDirPath = ''
+        
+        self.storeLogInFile = False
+        self.logPathSuffix = theLogPathSuffix
+
+        self.startTime = datetime.datetime.now()
 
         self.resultVec = []
 
+        # Report mode
+        if self.mode == TaintDroidRunnerMode.REPORT_MODE:
+            # Create report directory if it not exists
+            self.reportPath = self._getReportDirPath()
+            if not os.path.exists(self.reportPath):
+                self.log.debug('Create report directory: %s' % self.reportPath)
+                os.mkdir(self.reportPath)
 
-    # ================================================================================
-    # Setter
-    # ================================================================================
-    def setApp(self, theApp):
-        """
-        Set app to analyze with TaintDroid
-        """
-        self.app = theApp
+            # Change path variables            
+            self.storeLogInFile = True
+            self.logPathSuffix = self.reportPathSuffix
 
-    def setAppDir(self, theAppDir):
-        """
-        Set directory in which apps should be run with TaintDroid
-        """
-        self.appDir = theAppDir
-
-    def setSdkPath(self, thePath):
-        """
-        Set path to Android SDK.
-        """
-        self.sdkPath = thePath
-    
-    def setImageDirPath(self, thePath):
-        """
-        Set path to the TaintDroid 2.3 image files like
-        zImage, system.img, ramdisk.img, sdcard.img, and userdata.img
-        """
-        self.imageDirPath = thePath
-
-    def setAvdName(self, theName):
-        """
-        Set name of AVD to be used.
-        """
-        self.avdName = theName
-
-    def setLogDirPath(self, thePath):
-        """
-        Set path in which logfiles should be stored.
-        """
-        self.logDirPath = Utils.addSlashToPath(thePath)
-        
-    def setRunHeadless(self, theFlag=True):
-        """
-        Set if emulator should run headless.
-        """
-        self.runHeadless = theFlag
-
-    def setInteractiveMode(self, theFlag=True):
-        """
-        Set if user interactions should happen.
-        """
-        self.interactiveMode = theFlag
-
-    def setNumMonkeyEvents(self, theNum):
-        """
-        Set number of monkey events.
-        There are 5 separate runs. Each run will have n/5 events.
-        """
-        if theNum is not None:
-            self.numMonkeyEvents = int(theNum)
-
-    def setCleanUpImageDir(self, theFlag):
-        """
-        Set if image dir should be removed afterwards.
-        """
-        self.cleanUpImageDir = theFlag
-
+        # Logcat
+        logPath = self._getLogDirPath()
+        if not os.path.exists(logPath):
+            self.log.debug('Create log directory: %s' % logPath)
+            os.mkdir(logPath)
     
     # ================================================================================
     # Helpers
     # ================================================================================
+    def _getLogDirPath(self):
+        """
+        Return log directory for storing log and logcat.
+        """
+        if self.logPathSuffix is None or self.logPathSuffix == '':
+            return '%s-%s_' % (Utils.getDateAsString(self.startTime), Utils.getTimeAsString(self.startTime))
+        else:
+            if self.logPathSuffix[-1] == '/':
+                self.logPathSuffix = self.logPathSuffx[:-1]
+            return '%s_%s-%s/' % (self.logPathSuffix, Utils.getDateAsString(self.startTime), Utils.getTimeAsString(self.startTime))
+
+    def _getReportDirPath(self):
+        """
+        Return report directory for storing report.
+        """
+        if self.reportPathSuffix[-1] == '/':
+            self.reportPathSuffix = self.reportPathSuffx[:-1]
+        return '%s_%s-%s/' % (self.reportPathSuffix, Utils.getDateAsString(self.startTime), Utils.getTimeAsString(self.startTime))
+
+    def _getAppThreadLogFile(self, theSampleId, theFileName):
+        """
+        Return log file name for app runner thread.
+        """
+        logFileName = '%s_%06d_log.log' % (theFileName, theSampleId)
+        logFile = '%s%s' % (self._getLogDirPath(), logFileName)
+        if os.path.exists(logFile):
+            i = 1
+            while True:
+                logFileName = '%s_%06d_%02d_log.log' % (theFileName, theSampleId, i)
+                logFile = '%s%s' % (self._getLogDirPath(), logFileName)
+                if os.path.exists(logFile):
+                    i += 1
+                else:
+                    break
+                
+        return logFileName
+    
     def _getAppListInDirectory(self, theDir):
         """
         Returns the list of all .apk files within one directory.
@@ -498,24 +574,25 @@ class TaintDroidRunner:
             for fileName in files:
                 if fileName.find('.apk') != -1:
                     appList.append(os.path.join(root, fileName))
-        return appList      
+        return appList
 
-    def _initCleanImageDir(self, theImageDir, theAppName):
+    def _getReportName(self, theReportPath, theSampleId):
         """
-        Build a new directory with clean images.
-        Also checks if all images are available.
-        Return the new folder.
+        Return report name
         """
-        imageFileList = ['ramdisk.img', 'sdcard.img', 'system.img', 'userdata.img', 'zImage']
-        time = datetime.datetime.now()
-        newPath = '/tmp/%s_%s_%s' % (theAppName, Utils.getDataAsString(time), Utils.getTimeAsString(time))
-        self.log.info('Create clean image dir: %s' % newPath)
-        os.mkdir(newPath)
-        for imageFile in imageFileList:
-            self.log.info('- Copy %s' % imageFile)
-            shutil.copy2(os.path.join(theImageDir, imageFile), os.path.join(newPath, imageFile))
-        return newPath
-        
+        reportName = 'report_app_%06d.html' % theSampleId
+        reportFile = '%s%s' % (theReportPath, reportName)
+        if os.path.exists(reportFile):
+            i = 1
+            while True:
+                reportName = 'report_app_%06d_%02d.html' % (theSampleId, i)
+                reportFile = '%s%s' % (theReportPath, reportName)
+                if os.path.exists(reportFile):
+                    i += 1
+                else:
+                    break
+                
+        return reportName    
 
     # ================================================================================
     # Run
@@ -523,13 +600,20 @@ class TaintDroidRunner:
     def run(self):
         """
         Run TaintDroid and analyze the provided applications
-        """
+        """        
+        # Check for equal emulatorStartPort
+        if int(self.emulatorStartPort) % 2 != 0:
+            raise ValueError('Emulator start port has to be even')
+            
+        # Init result vec
+        threadLogFileList = []
+            
         # Build list of apps to be run      
         appList = [] 
         if self.app is not None and self.appDir is not None:
             raise TaintDroidRunnerError('Both application and application directory set')
         elif self.app is not None:
-            try:
+            try:                
                 appList.append(APKWrapper(self.app, theSdkPath=self.sdkPath, theLogger=self.log))
             except APKWrapperError, apkwErr:
                 self.log.debug('App %s could not be load: %s' % (self.app, str(apkwErr)))
@@ -545,36 +629,146 @@ class TaintDroidRunner:
                     aResultEntry = {'app' : appName,
                                     'errorList' : [apkwErr]}
                     self.resultVec.append(aResultEntry)
-        elif not self.interactiveMode:
+        else:
             raise TaintDroidRunnerError('Neither application nor application directory set')
 
+        # Debug info
+        self.log.write('The following apps are analyzed:')
+        for app in appList:
+            self.log.write('- %s (%s)' % (app.getApkFileName(), app.getApkPath()))
+          
         # Run
-        if not self.interactiveMode:
-            self.log.debug('The following apps are analyzed:')
-            for app in appList:
-                self.log.debug('- %s (%s)' % (app.getApkFileName(), app.getApkPath()))
+        if self.mode != TaintDroidRunnerMode.INTERACTIVE_MODE:
+            # Adjust max thread number if numTheads > numApps
+            numThreads = self.numThreads
+            if numThreads > len(appList):
+                self.log.debug('- Number of threads is greater than number of apps to be analyzed. Reduce number of threads from %d to %d.' % (int(numThreads), int(len(appList))))
+                numThreads = len(appList)
 
-            # Start threads
-            runnerThread = RunnerThread(self, appList, self.log)
-            runnerThread.daemon = True
-            runnerThread.start()
-            self.log.debug('Runner thread started')
-            try:
-                while True:
-                    time.sleep(10)
-                    if not runnerThread.isAlive():
-                        break
-            except KeyboardInterrupt:
-                self.log.debug('KeyboardInterrupt detected, stop threads')
-                runnerThread.cancelFlag = True
-                runnerThread.join(60) # Wait until finished, max 1min
-            except Exception, ex:
-                raise ex
-            
-        else: # self.interactivemode
             # Inits
-            localAppList = appList
-            localSimulationSteps = 2047 # all
+            numFinishedApps = 0 # number of analyzed apps
+            lastAppIndex = 0 # next app to be analyzed
+            numRunningThreads = 0 # number of running threads
+            threadList = [] # list of threads, size=numThreads
+            threadActiveMask = [] # bitmask to determine if thread is active, size=numThreads            
+            for i in xrange(numThreads):
+                threadList.append(None)
+                threadActiveMask.append(False)
+                
+            while True:
+                try:
+                    # Get app and start thread
+                    if numRunningThreads < numThreads and lastAppIndex < len(appList):
+                        # Get app
+                        app = appList[lastAppIndex]                    
+
+                        # Check for inactive thread
+                        threadIndex = -1
+                        for i in xrange(numThreads):
+                            if not threadActiveMask[i]:
+                                threadIndex = i
+                        if threadIndex == -1:
+                            self.log.error('No free thread index found even though numRunningThreads < numThreads')
+                            continue
+                        lastAppIndex += 1
+                        self.log.debug('Free thread found (%d) for analyzing %s' % (threadIndex+1, app.getApkName()))
+                        self.log.write('Analyze %s' % app.getApk())
+
+                        # Determine logger
+                        threadLogger = self.log
+                        if self.storeLogInFile:
+                            logFileName = self._getAppThreadLogFile(app.getId(), app.getApkName())
+                            logFile = '%s%s' % (self._getLogDirPath(), logFileName)
+                            threadLogFileList.append(logFileName)
+                            threadLogger = Logger(theLevel=self.log.level,
+                                                  theMode=LogMode.FILE,
+                                                  theLogFile=logFile)
+
+                        # Build thread
+                        runnerThread = RunnerThread(self, theApp=app, theLogger=threadLogger)
+                        runnerThread.emulatorPort = self.emulatorStartPort + (threadIndex*2)
+                        runnerThread.daemon = True
+                        runnerThread.startTime = datetime.datetime.now()
+
+                        # Start thread
+                        threadList[threadIndex] = runnerThread
+                        threadActiveMask[threadIndex] = True
+                        numRunningThreads += 1
+                        runnerThread.start()
+
+                    # No free thread -> check timing
+                    else:
+                        if lastAppIndex < len(appList):
+                            self.log.debug('No free thread found, wait for free thread')
+                        else:
+                            self.log.debug('No more apps to be analyzed, wait for end of analysis')
+                        
+                        # Check for inactive threads
+                        currentTime = datetime.datetime.now()
+                        for i in xrange(numThreads):
+                            # Thread terminated regulary
+                            if not threadList[i] is None and not threadList[i].isAlive():
+                                self.log.debug('Thread %d for %s finished' % ((i+1), threadList[i].app.getApk()))
+                                self._handleThreadResult(runnerThread.getResult())
+                                numFinishedApps += 1
+                                threadList[i] = None
+                                threadActiveMask[i] = False
+                                numRunningThreads -= 1
+
+                            # Check how long thread is running                           
+                            elif not threadList[i] is None:                                
+                                runningTime = currentTime - threadList[i].startTime
+                                if runningTime.seconds > self.maxThreadRuntime:
+                                    self.log.debug('Thread %d for %s is running more than %dsec, cancel' % ((i+1), threadList[i].app.getApk(), self.maxThreadRuntime))
+                                    threadList[i].cancelFlag = True
+                                    threadList[i].join(60) # Wait until finished, max 1min
+                                    if threadList[i].isAlive():
+                                        self.log.error('Thread %d cannot be terminated, anyway free it up.' % ((i+1)))
+                                    else:
+                                        self.log.debug('Thread %d successfully terminated' % ((i+1)))
+                                    self._handleThreadResult(threadList[i].getResult())
+                                    numFinishedApps += 1
+                                    threadList[i] = None
+                                    threadActiveMask[i] = False
+                                    numRunningThreads -= 1                                    
+
+                        # Sleep
+                        time.sleep(10)
+
+                    # Check for end
+                    if numFinishedApps == len(appList):
+                        break
+                    
+                except KeyboardInterrupt:
+                    self.log.write('KeyboardInterrupt detected, stop threads')
+                    for runnerThread in threadList:
+                        runnerThread.cancelFlag = True
+                        runnerThread.join(60) # Wait until finished, max 1min
+                        self._handleThreadResult(runnerThread.getResult())
+                    break
+                        
+                except Exception, ex:
+                    traceback.print_exc()
+                    raise ex
+                    
+        else: # self.mode == TaintDroidRunnerMode.INTERACTIVE_MODE:
+            # Initial check
+            if self.appDir is not None:
+                raise TaintDroidRunnerError('Interactive mode can only work with one app')
+            
+            # Determine logger
+            threadLogger = self.log
+            if self.storeLogInFile:
+                logFileName = self._getAppThreadLogFile(app.getId(), app.getApkName())
+                logFile = '%s%s' % (self._getLogDirPath(), logFileName)
+                threadLogFileList.append(logFileName)
+                threadLogger = Logger(theLevel=self.log.level,
+                                      theMode=LogMode.FILE,
+                                      theLogFile=logFile,
+                                      thePrintAlwaysFlag=True)
+                
+            # Inits
+            localSimulationSteps = 4095 # all
             localNumMonkeyEvents = self.numMonkeyEvents
 
             while True:
@@ -582,27 +776,18 @@ class TaintDroidRunner:
                     self.log.write('####################')
                     self.log.write('# Interactive mode #')
                     self.log.write('####################')
-                
-                    if len(localAppList) == 0:
-                        self.log.write('Current app: None')
-                    else:
-                        self.log.write('Current apps:')
-                        for app in localAppList:
-                            self.log.write('- %s (%s)' % (app.getApkFileName(), app.getApkPath()))
-                
-                    self.log.write('Current simulation steps: %d' % localSimulationSteps)
+                                
+                    self.log.write('Current simulation steps: %s' % SimulationSteps.getStepsAsString(localSimulationSteps))
                     self.log.write('Current num monkey events: %d' % localNumMonkeyEvents)
                     self.log.write('\nChoose')
                     self.log.write('(0) Run')
-                    self.log.write('(1) Choose apps')
-                    self.log.write('(2) Choose app directory')
-                    self.log.write('(3) Choose steps')
-                    self.log.write('(4) Determine monkey events')
+                    self.log.write('(1) Choose steps')
+                    self.log.write('(2) Determine monkey events')
                     self.log.write('(9) Quit')
                     cmd = raw_input('Your choice: ')
                     cmd = int(cmd)
                     if cmd == 0: # run
-                        runnerThread = RunnerThread(self, localAppList, self.log)
+                        runnerThread = RunnerThread(self, theApp=appList[0], theLogger=threadLogger)
                         runnerThread.simulationSteps = localSimulationSteps
                         runnerThread.numMonkeyEvents = localNumMonkeyEvents
                         runnerThread.start()
@@ -618,24 +803,10 @@ class TaintDroidRunner:
                             runnerThread.join(60) # Wait until finished, max 1min
                         except Exception, ex:
                             raise ex
-                    elif cmd == 1: # app
-                        inputApp = str(raw_input('Set app: '))
-                        try:
-                            localAppList = [APKWrapper(inputApp, theSdkPath=self.sdkPath, theLogger=self.log)]
-                        except APKWrapperError, apkwErr:
-                            self.log.write('App %s could not be load: %s' % (inputApp, str(apkwErr)))
-                    elif cmd == 2: # app dir
-                        inputDir = str(raw_input('Set directory: '))
-                        localAppList = []
-                        appNameList = self._getAppListInDirectory(inputDir)
-                        for appName in appNameList:
-                            try:
-                                localAppList.append(APKWrapper(appName, theSdkPath=self.sdkPath, theLogger=self.log))
-                            except APKWrapperError, apkwErr:
-                                self.log.write('Failed to add %s: %s' % (appName, str(apkwErr)))
-                    elif cmd == 3: # steps
+                        self._handleThreadResult(runnerThread.getResult())
+                    elif cmd == 1: # steps
                         localSimulationSteps = int(raw_input('Simulations steps: '))
-                    elif cmd == 4: # monkey events
+                    elif cmd == 2: # monkey events
                         localNumMonkeyEvents = int(raw_input('Number of monkey events: '))
                     elif cmd == 9: # quit
                         break
@@ -644,6 +815,70 @@ class TaintDroidRunner:
                 except ValueError, ve:
                     self.log.write('Invalid command...')
 
+        # Store results
+        self._handleMainResult(threadLogFileList)
+            
+
+    def _handleThreadResult(self, theThreadResult):
+        """
+        Adds the thread results to the result list.
+        In case of the report mode the report is stored.
+        In case of the MS mode the database is filled.
+        """
+        if self.mode == TaintDroidRunnerMode.REPORT_MODE:
+            # Generate app report
+            self.log.debug(theThreadResult)
+            appId = theThreadResult['app'].getId()
+            reportName = self._getReportName(self.reportPath, appId)
+            reportFile = '%s%s' % (self.reportPath, reportName)
+            ReportGenerator.generateAppReport(reportFile, theThreadResult)
+                    
+            # Add to result list
+            if theThreadResult.has_key('log'):
+                numCipherUsage = theThreadResult['log'].getNumLogEntries(theType=CipherUsageLogEntry)
+                numFileSystem = theThreadResult['log'].getNumLogEntries(theType=FileSystemLogEntry)
+                numNetwork = theThreadResult['log'].getNumLogEntries(theType=NetworkSendLogEntry)
+                numSSL = theThreadResult['log'].getNumLogEntries(theType=SSLLogEntry)
+                numSMS = theThreadResult['log'].getNumLogEntries(theType=SendSmsLogEntry)
+                numErrors = len(theThreadResult['errorList'])
+            else:
+                numCipherUsage = -1
+                numFileSystem = -1
+                numNetwork = -1
+                numSSL = -1
+                numSMS = -1
+                numErrors = 1
+                
+            reportResultEntry = {'id' : appId,
+                                 'appPackage' : theThreadResult['app'].getPackage(),
+                                 'appPath' : theThreadResult['app'].getApk(),
+                                 'reportName' : reportName,
+                                 'numCipherUsage' : numCipherUsage,
+                                 'numFileSystem' : numFileSystem,
+                                 'numNetwork' : numNetwork,
+                                 'numSSL' : numSSL,
+                                 'numSMS' : numSMS,
+                                 'numErrors' : numErrors}
+                        
+            self.resultVec.append(reportResultEntry)
+
+    def _handleMainResult(self, theThreadLogFileList):
+        """
+        Handels the main result
+        """
+        if self.mode == TaintDroidRunnerMode.REPORT_MODE:
+            endTime = datetime.datetime.now()
+            report = {'workingDir' : Utils.addSlashToPath(os.getcwd()),
+                      'startTime' : self.startTime,
+                      'endTime' : endTime,
+                      'appList' : self.resultVec,
+                      'numThreads' : self.numThreads,
+                      'emulatorStartPort' : self.emulatorStartPort,
+                      'cleanImageDir' : self.imageDirPath,
+                      'mainLogFile' : Utils.splitFileIntoDirAndName(self.log.logFile)[1],
+                      'threadLogFileList' : theThreadLogFileList}
+            reportFile = '%sreport.html' % (self.reportPath)
+            ReportGenerator.generateMainReport(reportFile, report)
 
 # ================================================================================
 # Main method
@@ -651,42 +886,76 @@ class TaintDroidRunner:
 
 def main():
     # Parse options
-    parser = OptionParser(usage='usage: %prog [options]', version='%prog 0.1')    
+    parser = OptionParser(usage='usage: %prog [options] mode', version='%prog 0.4')    
     parser.add_option('-a', '--app', metavar='<app>', help='Set path to Android app to run in TaintDroid')
     parser.add_option('-d', '--appDir', metavar='<directory>', help='Set directory in which all Android apps should be run in TaintDroid')
+    
+    parser.add_option('-i', '--imageDirPath', metavar='<path>', help='Set path to the TaintDroid 2.3 image files zImage, system.img, ramdisk.img, and sdcard.img')
+    parser.add_option('-t', '--numThreads', metavar='#', default=1, help='Number of threads to be used')
+    parser.add_option('', '--maxThreadRuntime', metavar='<secs>', default=300, help='Maximum seconds for thread')
+    parser.add_option('', '--emulatorStartPort', metavar='<port>', default=5554, help='First emulator port (has to be an even number)')
+
+    parser.add_option('', '--reportPathSuffix', metavar='<path>', help='Report directory in which all files are stored (date is appended)')
+    
+    parser.add_option('-l', '--logPathSuffix', metavar='<path>', help='Set path to directory in which log and logcat files should be stored')
+    parser.add_option('', '--storeLogInFile', action='store_true', default=False, help='Set to true (1) if outputs should be logged in separate file.')
+
     parser.add_option('', '--sdkPath', metavar='<path>', help='Set path to Android SDK')
-    parser.add_option('-i', '--imageDirPath', metavar='<path>', help='Set path to the TaintDroid 2.3 image files zImage, system.img, ramdisk.img and sdcard.img')
-    parser.add_option('-l', '--logDirPath', metavar='<path>', help='Set path to directory in which log files should be stored')
-    
-    parser.add_option('', '--numMonkeyEvents', metavar='#', help='Define number of monkey events to be executed (split into up to 5 separate runs).')
-    parser.add_option('', '--runHeadless', action='store_true', dest='headless', default=False, help='Run emulator without window.')
-    parser.add_option('', '--cleanUpImageDir', action='store_false', default=True, help='Set to false (0) if image dir should not be removed after run.')
-    
     parser.add_option('', '--avdName', metavar='<name>', help='Set the name of the AVD to be used')
+
+    parser.add_option('', '--runHeadless', action='store_true', dest='headless', default=False, help='Run emulator without window.')
+    
+    parser.add_option('', '--numMonkeyEvents', metavar='#', default='500', help='Define number of monkey events to be executed (split into up to 5 separate runs).')    
+    parser.add_option('', '--cleanUpImageDir', action='store_false', default=True, help='Set to false (0) if image dir should not be removed after run.')
+    parser.add_option('', '--sleepTime', metavar='<secs>', default='60', help='Set time to sleep during simulation.')
+    
     parser.add_option('-v', '--verbose', action='store_true', dest='verbose', default=False)
-    parser.add_option('-q', '--quiet', action='store_false', dest='verbose')
-    parser.add_option('', '--interactiveMode', action='store_true', default=False, help='Interactive mode.')
+    parser.add_option('-q', '--quiet', action='store_false', dest='verbose')    
     
     (options, args) = parser.parse_args()
+    mode = 'default'
+    if len(args) == 1:
+        mode = args[0]
 
-    # Run TaintDroidRunner
+    # TaintDroidRunner
+    tdroidRunner = TaintDroidRunner(theMode=mode, theReportPathSuffix=options.reportPathSuffix, theLogPathSuffix=options.logPathSuffix)    
+
+    # Run TaintDroidRunner    
+    tdroidRunner.app = options.app
+    tdroidRunner.appDir = options.appDir
+    
+    tdroidRunner.imageDirPath = options.imageDirPath
+    tdroidRunner.numThreads = int(options.numThreads)
+    tdroidRunner.maxThreadRuntime = int(options.maxThreadRuntime)
+    tdroidRunner.emulatorStartPort = int(options.emulatorStartPort)
+    
+    if not tdroidRunner.storeLogInFile:
+        tdroidRunner.storeLogInFile = options.storeLogInFile
+
+    tdroidRunner.sdkPath = options.sdkPath
+    tdroidRunner.avdName = options.avdName
+    tdroidRunner.runHeadless = options.headless
+    tdroidRunner.numMonkeyEvents = int(options.numMonkeyEvents)
+    tdroidRunner.cleanUpImageDir = options.cleanUpImageDir
+    tdroidRunner.sleepTime = int(options.sleepTime)
+
+    tdroidRunner.startTime = datetime.datetime.now()
+
+    # Build logger
+    logLevel = LogLevel.INFO
     if options.verbose:
-        logger = Logger(LogLevel.DEBUG)
+        logLevel = LogLevel.DEBUG
+
+    if options.storeLogInFile or tdroidRunner.mode == TaintDroidRunnerMode.REPORT_MODE:
+        logger = Logger(theLevel=logLevel,
+                        theMode=LogMode.FILE,
+                        theLogFile='%staintdroid_runner_main.log' % (tdroidRunner._getLogDirPath()),
+                        thePrintAlwaysFlag=True)
     else:
-        logger = Logger()
-    tdroidRunner = TaintDroidRunner(theLogger=logger)
-    tdroidRunner.setApp(options.app)
-    tdroidRunner.setAppDir(options.appDir)    
-    tdroidRunner.setSdkPath(options.sdkPath)
-    tdroidRunner.setImageDirPath(options.imageDirPath)
-    tdroidRunner.setLogDirPath(options.logDirPath)
-    
-    tdroidRunner.setAvdName(options.avdName)
-    tdroidRunner.setRunHeadless(options.headless)
-    tdroidRunner.setInteractiveMode(options.interactiveMode)
-    tdroidRunner.setNumMonkeyEvents(options.numMonkeyEvents)
-    tdroidRunner.setCleanUpImageDir(options.cleanUpImageDir)
-    
+        logger=Logger(theLevel=logLevel)
+    tdroidRunner.log = logger
+
+    # Run
     tdroidRunner.run()
     
 

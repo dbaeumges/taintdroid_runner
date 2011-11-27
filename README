@@ -18,6 +18,49 @@ taintdroid_runner.py and a bunch of helper files.
 #
 ################################################################################
 
+Log files:
+----------
+* without options:
+** log: no file
+** logcat: yyyyMMdd-HHmm_<apkname>_logcat.log
+
+* with logPathSuffix:
+** log: no file 
+** logcat: <logPathSuffix>_yyyyMMdd-HHmm/<apkname>_logcat.log
+
+* with storeLogInFile:
+** log (main): yyyyMMdd-HHmm_taintdroid_runner_main_log.log
+** log (app): yyyyMMdd-HHmm_<apkname>_log.log
+** logcat: yyyyMMdd-HHmm_<apkname>_logcat.log
+
+* with storeLogInFile and logPathSuffix
+** log (main): <logPathSuffix>_yyyyMMdd-HHmm/taintdroid_runner_main_log.log
+** log (app): <logPathSuffix>_yyyyMMdd-HHmm/<apkname>_log.log
+** logcat: <logPathSuffix>_yyyyMMdd-HHmm/<apkname>_logcat.log
+
+* report mode
+** log (main): <reportPathSuffix>_yyyyMMdd-HHmm/taintdroid_runner_main_log.log
+** log (app): <reportPathSuffix>_yyyyMMdd-HHmm/<apkname>_log.log
+** logcat: <reportPathSuffix>_yyyyMMdd-HHmm/<apkname>_logcat.log
+
+
+Version 0.4:
+------------
+* Changes
+** Change multi-threading behaviour
+*** Do not assign apps to threads in advance but 
+    start a thread per app (but not more than defined threads)
+*** Possibility to define a maximum thread runtime after which thread is killed
+
+* New features
+** Report mode which generates a very basic HTML report containing the results
+** Calculated MD5 and Sha256 Hash for APK file
+** Allow to set properties for TaintDroid logging
+
+* Files:
+** rename utils.py to common.py
+** report_generator.py: Generate a basic HTML report 
+
 
 Version 0.3:
 ------------
@@ -67,5 +110,4 @@ Version 0.1:
 ** Run all apps in one folder
 ** For every application use new image files (initial environment)
 ** Extract package out of APK
-
 

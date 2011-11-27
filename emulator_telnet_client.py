@@ -6,7 +6,7 @@
 #
 ################################################################################
 
-from utils import Logger
+from common import Logger
 
 import telnetlib
 

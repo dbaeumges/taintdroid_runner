@@ -6,6 +6,7 @@
 #
 ################################################################################
 
+from common import TaintLogActionEnum, TaintTagEnum
 import json
 
 
@@ -19,90 +20,14 @@ class CipherActionEnum:
     CLEANED = 'cleaned'
 
 class CipherModeEnum:
-    ENCRYTP_MODE = 1
+    ENCRYPT_MODE = 1
     DECRYPT_MODE = 2
-    
-class TaintTagEnum:
-    TAINT_CLEAR		= 0x0
-    TAINT_LOCATION	= 0x1       
-    TAINT_CONTACTS	= 0x2
-    TAINT_MIC           = 0x4
-    TAINT_PHONE_NUMBER  = 0x8
-    TAINT_LOCATION_GPS  = 0x10
-    TAINT_LOCATION_NET  = 0x20
-    TAINT_LOCATION_LAST = 0x40
-    TAINT_CAMERA        = 0x80
-    TAINT_ACCELEROMETER = 0x100
-    TAINT_SMS           = 0x200
-    TAINT_IMEI          = 0x400
-    TAINT_IMSI          = 0x800
-    TAINT_ICCID         = 0x1000
-    TAINT_DEVICE_SN     = 0x2000
-    TAINT_ACCOUNT       = 0x4000
-    TAINT_HISTORY       = 0x8000
-    TAINT_INCOMING_DATA = 0x10000
 
-    @staticmethod
-    def appendTaintTags(theTag1, theTag2):
-        tagInt1 = int(theTag1, 16)
-        tagInt2 = int(theTag2, 16)
-        tagInt = tagInt1 | tagInt2
-        tag = "0x%X" % tagInt
-        return tag
 
-    @staticmethod
-    def getTaintString(theTag):
-        tagInt = int(theTag, 16)
-        tagString = str(theTag) + ' ('
-        if tagInt == TaintTagEnum.TAINT_CLEAR:
-            tagString += 'No Tag)'
-        else:
-            if tagInt & TaintTagEnum.TAINT_LOCATION:
-                tagString += 'Location, '
-            if tagInt & TaintTagEnum.TAINT_CONTACTS:
-                tagString += 'Contact, '
-            if tagInt & TaintTagEnum.TAINT_MIC:
-                tagString += 'Microphone, '
-            if tagInt & TaintTagEnum.TAINT_PHONE_NUMBER:
-                tagString += 'Phone Number, '
-            if tagInt & TaintTagEnum.TAINT_LOCATION_GPS:
-                tagString += 'GPS Location, '
-            if tagInt & TaintTagEnum.TAINT_LOCATION_NET:
-                tagString += 'Net Location, '
-            if tagInt & TaintTagEnum.TAINT_LOCATION_LAST:
-                tagString += 'Last Location, '
-            if tagInt & TaintTagEnum.TAINT_CAMERA:
-                tagString += 'Camera, '
-            if tagInt & TaintTagEnum.TAINT_ACCELEROMETER:
-                tagString += 'Accelerometer, '
-            if tagInt & TaintTagEnum.TAINT_SMS:
-                tagString += 'SMS, '
-            if tagInt & TaintTagEnum.TAINT_IMEI:
-                tagString += 'IMEI, '
-            if tagInt & TaintTagEnum.TAINT_IMSI:
-                tagString += 'IMSI, '
-            if tagInt & TaintTagEnum.TAINT_ICCID:
-                tagString += 'ICCID, '
-            if tagInt & TaintTagEnum.TAINT_DEVICE_SN:
-                tagString += 'Device SN, '
-            if tagInt & TaintTagEnum.TAINT_ACCOUNT:
-                tagString += 'Account ,'  
-            if tagInt & TaintTagEnum.TAINT_HISTORY:
-                tagString += 'History, '
-            if tagInt & TaintTagEnum.TAINT_INCOMING_DATA:
-                tagString += 'Incoming, '
-        if tagString[len(tagString)-2:] == ') ':
-            tagString = tagString[:len(tagString)-2]
-        elif tagString[len(tagString)-2:] == ', ':
-            tagString = tagString[:len(tagString)-2] + ')'
-        return tagString
-
-    
 # ================================================================================
-# Json Objects
+# Json Base Class
 # ================================================================================
-
-class BaseLogEntry:
+class JsonBase:
     _json = True
     
     def __init__(self, **keys):
@@ -117,11 +42,20 @@ class BaseLogEntry:
     def update(self, name, **keys):
         setdefault(self, name, {}).update(keys) 
 
-class FileDescriptorLogEntry(BaseLogEntry):
+
+# ================================================================================
+# Json Log Objects (comming from TaintDroid)
+# ================================================================================
+class BaseLogEntry(JsonBase):
+    pass
+
+class ErrorLogEntry(BaseLogEntry):
     """
     """
-    fileDescriptor = 0
-    path = ''
+    message = ''
+    stackTraceStr = ''
+    stackTrace = [] # filled by postProcess
+    timestamp = ''
 
 class CipherUsageLogEntry(BaseLogEntry):
     """
@@ -138,11 +72,23 @@ class CipherUsageLogEntry(BaseLogEntry):
     
     def getOverviewLogStr(self):
         return 'CipherUsage (%s), id: %d, tag: %s, mode: %d' % (self.action, self.id, TaintTagEnum.getTaintString(self.tag), self.mode)
+
+    def getHtmlReportColumnList(self):
+        columnList = [TaintTagEnum.getTaintString(self.tag)]
+        if self.mode == CipherModeEnum.ENCRYPT_MODE:
+            columnList.append('encrypt')
+            columnList.append(self.input)
+        else:
+            columnList.append('decrypt')
+            columnList.append(self.output)
+        columnList.append(self.timestamp)
+        columnList.append(self.stackTraceStr)
+        return columnList
         
 class FileSystemLogEntry(BaseLogEntry):
     """
     """
-    action = ''
+    action = 0 # TaintLogActionEnum.FS_*
     tag = TaintTagEnum.TAINT_CLEAR
     fileDescriptor = 0
     filePath = '' # filled by postProcess
@@ -152,12 +98,21 @@ class FileSystemLogEntry(BaseLogEntry):
     timestamp = ''
 
     def getOverviewLogStr(self):
-        return 'FileSystemAccess (%s), tag: %s, file: %s (%d)' % (self.action, TaintTagEnum.getTaintString(self.tag), self.filePath, self.fileDescriptor)
+        return 'FileSystemAccess (%s), tag: %s, file: %s (%d)' % (TaintLogActionEnum.getActionString(self.action), TaintTagEnum.getTaintString(self.tag), self.filePath, self.fileDescriptor)
+
+    def getHtmlReportColumnList(self):
+        columnList = [TaintTagEnum.getTaintString(self.tag)]
+        columnList.append(TaintLogActionEnum.getActionString(self.action))
+        columnList.append(self.filePath)
+        columnList.append(self.data)
+        columnList.append(self.timestamp)
+        columnList.append(self.stackTraceStr)
+        return columnList
     
 class NetworkSendLogEntry(BaseLogEntry):
     """
     """
-    action = ''
+    action = 0 # TaintLogActionEnum.NET_*
     tag = TaintTagEnum.TAINT_CLEAR
     destination = ''
     port = 0
@@ -167,12 +122,45 @@ class NetworkSendLogEntry(BaseLogEntry):
     timestamp = ''
     
     def getOverviewLogStr(self):
-        return 'NetworkAccess (%s), tag: %s, destination: %s:%d' % (self.action, TaintTagEnum.getTaintString(self.tag), self.destination, self.port)
+        return 'NetworkAccess (%s), tag: %s, destination: %s:%d' % (TaintLogActionEnum.getActionString(self.action), TaintTagEnum.getTaintString(self.tag), self.destination, self.port)
+
+    def getHtmlReportColumnList(self):
+        columnList = [TaintTagEnum.getTaintString(self.tag)]
+        columnList.append(TaintLogActionEnum.getActionString(self.action))
+        columnList.append('%s:%d' % (self.destination, self.port))
+        columnList.append(self.data)
+        columnList.append(self.timestamp)
+        columnList.append(self.stackTraceStr)
+        return columnList
+
+class SSLLogEntry(BaseLogEntry):
+    """
+    """
+    action = 0 # TaintLogActionEnum.SSL_*
+    tag = TaintTagEnum.TAINT_CLEAR
+    destination = ''
+    port = 0
+    data = ''
+    stackTraceStr = ''
+    stackTrace = [] # filled by postProcess
+    timestamp = ''
+    
+    def getOverviewLogStr(self):
+        return 'SSL (%s), tag: %s, destination: %s:%d' % (TaintLogActionEnum.getActionString(self.action), TaintTagEnum.getTaintString(self.tag), self.destination, self.port)
+
+    def getHtmlReportColumnList(self):
+        columnList = [TaintTagEnum.getTaintString(self.tag)]
+        columnList.append(TaintLogActionEnum.getActionString(self.action))
+        columnList.append('%s:%d' % (self.destination, self.port))
+        columnList.append(self.data)
+        columnList.append(self.timestamp)
+        columnList.append(self.stackTraceStr)
+        return columnList
 
 class SendSmsLogEntry(BaseLogEntry):
     """
     """
-    action = ''
+    action = 0 # TaintLogActionEnum.SMS_*
     tag = TaintTagEnum.TAINT_CLEAR
     destination = ''
     scAddress = ''
@@ -182,13 +170,22 @@ class SendSmsLogEntry(BaseLogEntry):
     timestamp = ''
     
     def getOverviewLogStr(self):
-        return 'NetworkAccess (%s), tag: %s, destination: %s' % (self.action, TaintTagEnum.getTaintString(self.tag), self.destination)
+        return 'NetworkAccess (%s), tag: %s, destination: %s' % (TaintLogActionEnum.getActionString(self.action), TaintTagEnum.getTaintString(self.tag), self.destination)
+
+    def getHtmlReportColumnList(self):
+        columnList = [TaintTagEnum.getTaintString(self.tag)]
+        columnList.append(TaintLogActionEnum.getActionString(self.action))
+        columnList.append(self.scAddress)
+        columnList.append(self.destination)
+        columnList.append(self.text)
+        columnList.append(self.timestamp)
+        columnList.append(self.stackTraceStr)
+        return columnList
 
 
 # ================================================================================
 # Json En-/Decoder
 # ================================================================================
-
 class _JSONEncoder(json.JSONEncoder):
     def default(self, theObject):
         if hasattr(theObject, '_json'):
@@ -213,16 +210,21 @@ def _JSONDecoder(theDict):
             break
     if type == None: return theDict
 
+    # Log objects
     if '__CipherUsageLogEntry__' == type:
         object = CipherUsageLogEntry()
     elif '__FileDescriptorLogEntry__' == type:
         object = FileDescriptorLogEntry()
-    elif '__FileSystemObject__' == type:
+    elif '__FileSystemLogEntry__' == type:
         object = FileSystemLogEntry()
     elif '__NetworkSendLogEntry__' == type:
         object = NetworkSendLogEntry()
+    elif '__SSLLogEntry__' == type:
+        object = SSLLogEntry()
     elif '__SendSmsLogEntry__' == type:
         object = SendSmsLogEntry()
+        
+    # Else...
     else:
         raise Exception('Unkown type \'%s\' found' % type)
 
@@ -236,7 +238,6 @@ def _JSONDecoder(theDict):
 # ================================================================================
 # Json Factory
 # ================================================================================ 
-
 class JsonFactory:
     def py2Json(self, theObject, theIndentFlag=False):
         if theIndentFlag:

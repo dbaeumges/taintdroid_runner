@@ -8,7 +8,7 @@
 ################################################################################
 
 from emulator_telnet_client import EmulatorTelnetClient
-from utils import Logger, Utils
+from common import Logger, TaintLogKeyEnum, Utils
 
 import os
 import signal
@@ -27,6 +27,7 @@ class EmulatorClientError(Exception):
     START_EMULATOR_ERROR = 4
     ADB_RUN_ERROR = 5
     MONKEY_ERROR = 6
+    INSTALLATION_ERROR_SYSTEM_NOT_RUNNING = 7
     
     def __init__(self, theValue, theCode=GENERAL_ERROR, theBaseError=None):        
         self.value = theValue
@@ -75,25 +76,6 @@ class EmulatorClient:
         if not self.emulator is None:
             self.emulator.kill()    
 
-    def setSdkPath(self, thePath):
-        """
-        Set path to Android SDK.
-        """
-        self.sdkPath = Utils.addSlashToPath(thePath)
-
-    def setImageDirPath(self, thePath):
-        """
-        Set path to the TaintDroid 2.3 image files like
-        zImage, system.img, ramdisk.img, and sdcard.img.
-        """
-        self.imageDirPath = Utils.addSlashToPath(thePath)    
-
-    def setAvdName(self, theName):
-        """
-        Set name of AVD to be used.
-        """
-        self.avdName = theName    
-
     def start(self):
         """
         Starts the emulator with TaintDroid images
@@ -111,6 +93,7 @@ class EmulatorClient:
             args.extend(['-port',    str(self.port)])
             if self.runHeadless:
                 args.extend(['-no-window'])
+            self.log.debug('- args: %s' % args)
             self.emulator = subprocess.Popen(args,
                                              stdout=subprocess.PIPE,
                                              stdin=subprocess.PIPE,
@@ -147,6 +130,32 @@ class EmulatorClient:
         """
         return EmulatorTelnetClient(thePort=self.port, theLogger=self.log)
 
+    def setProperty(self, theKey, theValue):
+        """
+        Sets a property
+        """
+        self.runAdbCommand(['shell', 'setprop', theKey, theValue])
+
+    def changeGlobalTaintLogState(self, theState, theDoNotFollowFlag=False):
+        """
+        Changes the global taint log activity property
+        """
+        self.setProperty(TaintLogKeyEnum.GLOBAL_ACTIVE_KEY, theState)
+        if theDoNotFollowFlag:
+            self.setProperty(TaintLogKeyEnum.GLOBAL_SKIP_LOOKUP_KEY, '1')
+        
+    def changeGlobalTaintLogActionMask(self, theMask):
+        """
+        Changes the global taint log action mask
+        """
+        self.setProperty(TaintLogKeyEnum.GLOBAL_ACTION_MASK_KEY, theMask)
+
+    def changeGlobalTaintLogTaintMask(self, theMask):
+        """
+        Changes the global taint log taint mask
+        """
+        self.setProperty(TaintLogKeyEnum.GLOBAL_ACTION_TAINT_KEY, theMask)
+
     def installApp(self, theApp):
         """
         Installs the provided app on the emulator
@@ -155,6 +164,8 @@ class EmulatorClient:
         if retval[0].find('Success') == -1:
             if retval[0].find('INSTALL_FAILED_ALREADY_EXISTS') != -1:
                 raise EmulatorClientError('Application %s already exists.' % theApp, EmulatorClientError.INSTALLATION_ERROR_ALREADY_EXISTS)
+            elif retval[0].find('Is the system running?') != -1:
+                raise EmulatorClientError('Failed to install %s: Is the system running?' % theApp, EmulatorClientError.INSTALLATION_ERROR_SYSTEM_NOT_RUNNING)
             else:
                 raise EmulatorClientError('Failed to install %s: %s' % (theApp, retval[0]), EmulatorClientError.GENERAL_INSTALLATION_ERROR)
 
@@ -190,14 +201,14 @@ class EmulatorClient:
         """
         if thePackage is None:
             if self.log.isDebug():
-                retval = self.runAdbCommand(['shell', 'monkey', '-v', str(theEventCount)])
+                retval = self.runAdbCommand(['shell', 'monkey', '--ignore-crashes', '-v', str(theEventCount)])
             else:
-                retval = self.runAdbCommand(['shell', 'monkey', str(theEventCount)])
+                retval = self.runAdbCommand(['shell', 'monkey', '--ignore-crashes', str(theEventCount)])
         else:
             if self.log.isDebug():
-                retval = self.runAdbCommand(['shell', 'monkey', '-v', '-p', thePackage, str(theEventCount)])
+                retval = self.runAdbCommand(['shell', 'monkey', '--ignore-crashes', '-v', '-p', thePackage, str(theEventCount)])
             else:
-                retval = self.runAdbCommand(['shell', 'monkey', '-p', thePackage, str(theEventCount)])
+                retval = self.runAdbCommand(['shell', 'monkey', '--ignore-crashes', '-p', thePackage, str(theEventCount)])
 
             if retval[0].find('monkey aborted') != -1:
                 raise EmulatorClientError('Failed to run monkey on %s: %s' % (thePackage, retval[0]), EmulatorClientError.MONKEY_ERROR)
@@ -206,9 +217,9 @@ class EmulatorClient:
         """
         Returns the (full) logcat output
         """
-        args = ['shell', 'logcat', '-d', '&&',
-                '%sadb' % Utils.getAdbPath(self.sdkPath), 'shell', 'logcat', '-b', 'events', '-d', '&&',
-                '%sadb' % Utils.getAdbPath(self.sdkPath), 'shell', 'logcat', '-b', 'radio', '-d']
+        args = ['shell', 'logcat', '-d', '-v', 'thread', '&&',
+                '%sadb' % Utils.getAdbPath(self.sdkPath), '-s', 'emulator-%s' % str(self.port), 'shell', 'logcat', '-b', 'events', '-d', '-v', 'thread', '&&',
+                '%sadb' % Utils.getAdbPath(self.sdkPath), '-s', 'emulator-%s' % str(self.port), 'shell', 'logcat', '-b', 'radio', '-d', '-v', 'thread']
         logcat = self.runAdbCommand(args)[0]
         return logcat
 
@@ -223,7 +234,7 @@ class EmulatorClient:
         """
         Runs a simple adb command
         """
-        args = ['%sadb' % Utils.getAdbPath(self.sdkPath)]
+        args = ['%sadb' % Utils.getAdbPath(self.sdkPath), '-s', 'emulator-%s' % str(self.port)]
         args.extend(theArgs)
         self.log.debug('Exec adb command: %s' % args)
         try:

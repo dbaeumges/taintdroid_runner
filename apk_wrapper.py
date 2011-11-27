@@ -6,11 +6,13 @@
 #
 ################################################################################
 
+from common import Logger, LogLevel, Utils
 from optparse import OptionParser
-from utils import Logger, LogLevel, Utils
 
 import copy
+import hashlib
 import os
+import random
 import subprocess
 
 
@@ -34,6 +36,7 @@ class APKWrapper:
         self.sdkPath = Utils.addSlashToPath(theSdkPath)
         self.log = theLogger
 
+        self.sampleId = random.randint(1, 1000000)
         self.apkFileName = Utils.splitFileIntoDirAndName(theApkFile)[1]
         self.apkPath = Utils.splitFileIntoDirAndName(theApkFile)[0]
         self.package = ''
@@ -46,7 +49,18 @@ class APKWrapper:
         
         self.__extractFromPermissions()
         self.__extractApplication()
-        
+
+    def getId(self):
+        """
+        Return id
+        """
+        return self.sampleId
+
+    def setId(self, theId):
+        """
+        Set id
+        """
+        self.sampleId = theId
 
     def getManifest(self):
         """
@@ -66,6 +80,12 @@ class APKWrapper:
         """
         return self.apkFileName
 
+    def getApkName(self):
+        """
+        Return APK file name without extension
+        """
+        return self.apkFileName.rsplit('.', 1)[0]
+
     def getApkPath(self):
         """
         Return path to APK file.
@@ -78,6 +98,30 @@ class APKWrapper:
         """
         return self.package
 
+    def getMd5Hash(self):
+        """
+        Return the MD5 Hash of the APK file.
+        """
+        md5 = hashlib.md5()
+        return self.__getHash(md5)
+
+    def getSha256Hash(self):
+        """
+        Return the SHA256 Hash of the APK file.
+        """
+        sha256 = hashlib.sha256()
+        return self.__getHash(sha256)
+
+    def __getHash(self, theAlg):
+        blockSize = 2**16
+        apkFile = open(self.getApk(), "r")
+        while True:
+            data = apkFile.read(blockSize)
+            if not data:
+                break
+            theAlg.update(data)
+        return theAlg.hexdigest()
+        
     def getActivityNameList(self):
         """
         Return list of activity names.
@@ -387,9 +431,11 @@ class APKWrapper:
         if theMainLevel == self.Level.APPL_ACTIVITY or \
                 theMainLevel == self.Level.APPL_SERVICE or \
                 theMainLevel == self.Level.APPL_RECEIVER or \
+                theMainLevel == self.Level.APPL_PROVIDER or \
                 theMainLevel == self.Level.APPL_ACTIVITY_ALIAS:
             return {"intentFilterList":[]}
         else:
+            print 'NOT', theMainLevel
             return {}
 
     def __getInitialSubObj(self, theSubLevel):
@@ -439,13 +485,19 @@ def main():
     parser.add_option('-q', '--quiet', action='store_false', dest='verbose')
     (options, args) = parser.parse_args()
 
-    # Run
+    # Run   
     if options.verbose:
         logger = Logger(LogLevel.DEBUG)
     else:
         logger = Logger()
     apk = APKWrapper(args[0], theSdkPath=options.sdkPath, theLogger=logger)
     print apk.getServiceNameList()
+    print 'MD5 %s' % apk.getMd5Hash()
+    print 'SHA256 %s' % apk.getSha256Hash()
+
+    import codecs
+    report = codecs.open('xxx', "w", "utf-8")
+    report.write('md5: %s' % apk.getMd5Hash())
 
 if __name__ == '__main__':
     main()
