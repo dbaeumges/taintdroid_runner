@@ -709,7 +709,7 @@ class TaintDroidRunner:
                             # Thread terminated regulary
                             if not threadList[i] is None and not threadList[i].isAlive():
                                 self.log.debug('Thread %d for %s finished' % ((i+1), threadList[i].app.getApk()))
-                                self._handleThreadResult(runnerThread.getResult())
+                                self._handleThreadResult(threadList[i].getResult())
                                 numFinishedApps += 1
                                 threadList[i] = None
                                 threadActiveMask[i] = False

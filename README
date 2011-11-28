@@ -61,6 +61,9 @@ Version 0.4:
 ** rename utils.py to common.py
 ** report_generator.py: Generate a basic HTML report 
 
+* Todos and ideas
+** Store results in database
+
 
 Version 0.3:
 ------------

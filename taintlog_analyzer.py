@@ -228,7 +228,7 @@ class TaintLogAnalyzer:
                         self.log.info("CipherUsageLogEntry with action '%s' found without starting init" % logEntry.action)
                 
             # Update index
-            logEntryIndex =+ 1
+            logEntryIndex += 1
 
         # Delete stale objects
         if theDeleteStaleObjectsFlag:
