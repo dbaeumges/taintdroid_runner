@@ -175,10 +175,12 @@ class TaintLogAnalyzer:
         """
         cipherUsageDict = {}
 
+        filteredLogEntryList = []
         logEntryIndex = 0
         for logEntry in self.logEntryList:
             # Stack trace vec
-            if isinstance(logEntry, CipherUsageLogEntry) or \
+            if isinstance(logEntry, CallActionLogEntry) or \
+               isinstance(logEntry, CipherUsageLogEntry) or \
                isinstance(logEntry, ErrorLogEntry) or \
                isinstance(logEntry, FileSystemLogEntry) or \
                isinstance(logEntry, NetworkSendLogEntry) or \
@@ -186,6 +188,10 @@ class TaintLogAnalyzer:
                isinstance(logEntry, SendSmsLogEntry):
                 stackTrace = logEntry.stackTraceStr.split('||')
                 logEntry.stackTrace = stackTrace[:len(stackTrace)-1]
+
+            # Filter log entry?
+            if self.__removeLogObjectByFilter(logEntry):
+                filteredLogEntryList.append(logEntryIndex)
                 
             # Cipher cleaning (combine inputs and outputs)
             if isinstance(logEntry, CipherUsageLogEntry):
@@ -239,7 +245,6 @@ class TaintLogAnalyzer:
             for id, logEntry in cipherUsageDict.iteritems():
                 delLogEntryIdxList.extend(logEntry[1])
 
-
             # Do drop
             delLogEntryIdxList.sort()
             for i in xrange(len(delLogEntryIdxList)):
@@ -249,7 +254,14 @@ class TaintLogAnalyzer:
         # Add cleaned cipher usage objects
         for id, logEntry in cipherUsageDict.iteritems():
             self.logEntryList.append(logEntry[0])
-                
+
+
+    def __removeLogObjectByFilter(self, theLogObject):
+        """
+        Returns if log object should be filtered.
+        """
+        return False
+            
 
     def printOverview(self):
         """

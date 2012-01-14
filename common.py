@@ -6,6 +6,7 @@
 #
 ################################################################################
 
+import os
 import sys
 
 # ================================================================================
@@ -39,6 +40,7 @@ class TaintLogActionEnum:
 
     CIPHER_ACTION            = 0x00800000
     ERROR_ACTION             = 0x01000000
+    CALL_ACTION              = 0x02000000
 
     @staticmethod
     def getActionString(theAction):
@@ -176,6 +178,7 @@ class TaintTagEnum:
     TAINT_HISTORY       = 0x8000
     TAINT_INCOMING_DATA = 0x10000
     TAINT_USER_INPUT    = 0x20000
+    TAINT_MEDIA         = 0x40000
 
     @staticmethod
     def appendTaintTags(theTag1, theTag2):
@@ -228,6 +231,8 @@ class TaintTagEnum:
                 tagString += 'Incoming, '
             if tagInt & TaintTagEnum.TAINT_USER_INPUT:
                 tagString += 'UserInput, '
+            if tagInt & TaintTagEnum.TAINT_MEDIA:
+                tagString += 'Media, '
         if tagString[-2:] == ') ':
             tagString = tagString[:-2]
         elif tagString[-2:] == ', ':
@@ -345,6 +350,7 @@ class Utils:
 
     @staticmethod
     def splitFileIntoDirAndName(thePath):
+        if thePath is None: return ['', '']
         if len(thePath.rsplit('/', 1)) == 1:
             return [''].extend(thePath.rsplit('/', 1))
         return thePath.rsplit('/', 1)
@@ -357,3 +363,15 @@ class Utils:
     @staticmethod
     def getTimeAsString(theTime):
         return "%02d%02d%02d" % (theTime.hour, theTime.minute, theTime.second)
+
+    @staticmethod
+    def _getAppListInDirectory(theDir):
+        """
+        Returns the list of all .apk files within one directory.
+        """
+        appList = []
+        for root, dirs, files in os.walk(theDir):
+            for fileName in files:
+                if fileName.find('.apk') != -1:
+                    appList.append(os.path.join(root, fileName))
+        return appList

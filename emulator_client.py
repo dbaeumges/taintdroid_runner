@@ -28,6 +28,7 @@ class EmulatorClientError(Exception):
     ADB_RUN_ERROR = 5
     MONKEY_ERROR = 6
     INSTALLATION_ERROR_SYSTEM_NOT_RUNNING = 7
+    LOGCAT_REDIRECT_RUNNING = 8
     
     def __init__(self, theValue, theCode=GENERAL_ERROR, theBaseError=None):        
         self.value = theValue
@@ -70,9 +71,18 @@ class EmulatorClient:
         
         self.avdName = theAvdName
 
-        self.emulator = None        
+        self.emulator = None
+
+        self.logcatRedirectFile = ''
+        self.logcatRedirectProcess = None
+
+        self.adbProcess = None
 
     def __del__(self):
+        if not self.logcatRedirectProcess is None:
+            self.logcatRedirectProcess.kill()
+        if not self.adbProcess is None:
+            self.adbProcess.kill()
         if not self.emulator is None:
             self.emulator.kill()    
 
@@ -91,6 +101,7 @@ class EmulatorClient:
             args.extend(['-sdcard',  '%ssdcard.img' % self.imageDirPath])
             args.extend(['-data',    '%suserdata.img' % self.imageDirPath])
             args.extend(['-port',    str(self.port)])
+            args.extend(['-no-boot-anim'])
             if self.runHeadless:
                 args.extend(['-no-window'])
             self.log.debug('- args: %s' % args)
@@ -111,9 +122,9 @@ class EmulatorClient:
 
         # Set portable mode
         self.runAdbCommand(['shell', 'setprop', 'dalvik.vm.execution-mode', 'int:portable'])
-
+        
         # Wait
-        time.sleep(90)
+        time.sleep(60)
 
     def stop(self):
         """
@@ -122,6 +133,24 @@ class EmulatorClient:
         if self.emulator is None:
             raise EmulatorClientError('Emulator not startet')
         self.emulator.terminate()
+        self.emulator = None
+
+    def killRun(self):
+        """
+        Kills the emulator
+        """
+        if self.emulator is None:
+            raise EmulatorClientError('Emulator not startet')
+
+        if not self.logcatRedirectProcess is None:
+            self.logcatRedirectProcess.kill()
+            self.logcatRedirectProcess = None
+
+        if not self.adbProcess is None:
+            self.adbProcess.kill()
+            self.adbProcess = None
+
+        self.emulator.kill()
         self.emulator = None
 
     def getTelnetClient(self):
@@ -156,6 +185,12 @@ class EmulatorClient:
         """
         self.setProperty(TaintLogKeyEnum.GLOBAL_ACTION_TAINT_KEY, theMask)
 
+    def setSimCountryIso(self, theIsoCode):
+        """
+        Sets the sim country iso
+        """
+        self.setProperty('gsm.sim.operator.iso-country', theIsoCode)
+
     def installApp(self, theApp):
         """
         Installs the provided app on the emulator
@@ -169,9 +204,9 @@ class EmulatorClient:
             else:
                 raise EmulatorClientError('Failed to install %s: %s' % (theApp, retval[0]), EmulatorClientError.GENERAL_INSTALLATION_ERROR)
 
-    def startAction(self, thePackage, theActivity):
+    def startActivity(self, thePackage, theActivity):
         """
-        Starts the specified action (without intent).
+        Starts the specified activity (without intent).
         """
         args = ['shell', 'am', 'start',
                 '-n', '%s/%s' % (thePackage, theActivity)]
@@ -201,20 +236,24 @@ class EmulatorClient:
         """
         if thePackage is None:
             if self.log.isDebug():
-                retval = self.runAdbCommand(['shell', 'monkey', '--ignore-crashes', '-v', str(theEventCount)])
+                #retval = self.runAdbCommand(['shell', 'monkey', '--ignore-crashes', '-v', str(theEventCount)])
+                retval = self.runAdbCommand(['shell', 'monkey', '-v', str(theEventCount)])
             else:
-                retval = self.runAdbCommand(['shell', 'monkey', '--ignore-crashes', str(theEventCount)])
+                #retval = self.runAdbCommand(['shell', 'monkey', '--ignore-crashes', str(theEventCount)])
+                retval = self.runAdbCommand(['shell', 'monkey', str(theEventCount)])
         else:
             if self.log.isDebug():
-                retval = self.runAdbCommand(['shell', 'monkey', '--ignore-crashes', '-v', '-p', thePackage, str(theEventCount)])
+                #retval = self.runAdbCommand(['shell', 'monkey', '--ignore-crashes', '-v', '-p', thePackage, str(theEventCount)])
+                retval = self.runAdbCommand(['shell', 'monkey', '-v', '-p', thePackage, str(theEventCount)])
             else:
-                retval = self.runAdbCommand(['shell', 'monkey', '--ignore-crashes', '-p', thePackage, str(theEventCount)])
+                #retval = self.runAdbCommand(['shell', 'monkey', '--ignore-crashes', '-p', thePackage, str(theEventCount)])
+                retval = self.runAdbCommand(['shell', 'monkey', '-p', thePackage, str(theEventCount)])
 
             if retval[0].find('monkey aborted') != -1:
                 raise EmulatorClientError('Failed to run monkey on %s: %s' % (thePackage, retval[0]), EmulatorClientError.MONKEY_ERROR)
 
     def getLog(self):
-        """
+        """ 
         Returns the (full) logcat output
         """
         args = ['shell', 'logcat', '-d', '-v', 'thread', '&&',
@@ -228,7 +267,68 @@ class EmulatorClient:
         Clears the logcat output
         """
         self.runAdbCommand(['logcat', '-c'])
-    
+
+    def startLogcatRedirect(self, theFile='/mnt/sdcard/logcat.log', theMaxSize=4096):
+        """
+        Start logcat redirection.
+        """
+        self.log.debug('Start logcat redirect, file: %s, size: %dkBytes' % (theFile, theMaxSize))
+        if not self.logcatRedirectProcess is None:
+            self.endLogcatRedirect()
+        if not self.logcatRedirectProcess is None:
+            raise EmulatorClientError('Logcat redirect is already running', EmulatorClientError.LOGCAT_REDIRECT_RUNNING)
+        
+        try:
+            args = ['%sadb' % Utils.getAdbPath(self.sdkPath), '-s', 'emulator-%s' % str(self.port),
+                    'shell', 'logcat', '-v', 'thread', '-f', theFile, '-r', str(theMaxSize)]
+            self.logcatRedirectProcess = subprocess.Popen(args,
+                                                          stdout=subprocess.PIPE,
+                                                          stdin=subprocess.PIPE,
+                                                          stderr=subprocess.PIPE)
+
+            #if self.verbose:
+            #    print self.logcatRedirectProcess.communicate()
+        except OSError, osErr:
+            print osErr
+            raise EmulatorClientError('Failed to run adb command \'%s\': %s' % (args, osErr.strerror),
+                                      theCode=EmulatorClientError.ADB_RUN_ERROR,
+                                      theBaseError=osErr)
+        
+        self.logcatRedirectFile = theFile
+
+    def stopLogcatRedirect(self):
+        """
+        Stop logcat redirection.
+        """
+        self.log.debug('End logcat redirect')
+        if not self.logcatRedirectProcess is None:
+            try:
+                self.logcatRedirectProcess.terminate()
+            except OSError, osErr:
+                print osErr
+                pass
+        self.logcatRedirectProcess = None
+
+    def getLogcatRedirectFile(self, theLogFile=None):
+        """
+        Return the redirect logcat file.
+        """
+        logFile = theLogFile
+        if logFile is None:
+            logFile = self.logcatRedirectFile
+        self.log.debug('Get logcat redirect file, logFile: %s' % (logFile))
+        logcat = self.runAdbCommand(['shell', 'cat', logFile])[0]
+        return logcat
+        
+    def storeLogcatRedirectFile(self, theLogFile=None, theTargetFile=None):
+        """
+        Store the redirect logcat file in the specified target file.
+        """
+        logFile = theLogFile
+        if logFile is None:
+            logFile = self.logcatRedirectFile
+        self.log.debug('Store logcat redirect file, logFile: %s, targetFile: %s' % (logFile, theTargetFile))
+        self.runAdbCommand(['pull', logFile, theTargetFile])
 
     def runAdbCommand(self, theArgs):
         """
@@ -238,15 +338,16 @@ class EmulatorClient:
         args.extend(theArgs)
         self.log.debug('Exec adb command: %s' % args)
         try:
-            adb = subprocess.Popen(args,
-                                   stdout=subprocess.PIPE,
-                                   stdin=subprocess.PIPE,
-                                   stderr=subprocess.PIPE)
+            self.adbProcess = subprocess.Popen(args,
+                                               stdout=subprocess.PIPE,
+                                               stdin=subprocess.PIPE,
+                                               stderr=subprocess.PIPE)
         except OSError, osErr:
             raise EmulatorClientError('Failed to run adb command \'%s\': %s' % (args, osErr.strerror),
                                       theCode=EmulatorClientError.ADB_RUN_ERROR,
                                       theBaseError=osErr)
-        retval = adb.communicate()
-        adb.wait()        
+        retval = self.adbProcess.communicate()
+        self.adbProcess = None
+        #adb.wait()        
         self.log.debug('Result: %s' % str(retval))
         return retval

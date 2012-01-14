@@ -208,7 +208,7 @@ class EmulatorTelnetClient:
         Set health status.
         Allowed values for the state can be found in BatteryHealthState class
         """
-        if not BatteryHealthrState.isValidValue(theState):
+        if not BatteryHealthState.isValidValue(theState):
             raise ValueError('Battery health state has to be one of the following values: %s' % BatteryHealthState.ALLOWED_VALUES)
         self.__runCommand('power health %s' % theState)
 

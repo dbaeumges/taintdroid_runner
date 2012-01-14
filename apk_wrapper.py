@@ -121,7 +121,31 @@ class APKWrapper:
                 break
             theAlg.update(data)
         return theAlg.hexdigest()
-        
+
+    def getMainActivityName(self):
+        """
+        Returns the name of the main activity.
+        If there is none, return None.
+        """
+        for activity in self.manifest['activityList']:
+            if activity.has_key('intentFilterList'):
+                for intentFilter in activity['intentFilterList']:
+                    if intentFilter.has_key('action'):
+                        if isinstance(intentFilter['action'], dict) and intentFilter['action'].has_key('android:name'):
+                            if intentFilter['action']['android:name'] == 'android.intent.action.MAIN':
+                                if activity.has_key('android:name'):
+                                    return activity['android:name']
+                                else:
+                                    return None
+                    if intentFilter.has_key('category'):
+                        if isinstance(intentFilter['category'], dict) and intentFilter['category'].has_key('android:name'):
+                            if intentFilter['category']['android:name'] == 'android.intent.category.LAUNCHER':
+                                if activity.has_key('android:name'):
+                                    return activity['android:name']
+                                else:
+                                    return None
+        return None
+    
     def getActivityNameList(self):
         """
         Return list of activity names.
@@ -435,7 +459,6 @@ class APKWrapper:
                 theMainLevel == self.Level.APPL_ACTIVITY_ALIAS:
             return {"intentFilterList":[]}
         else:
-            print 'NOT', theMainLevel
             return {}
 
     def __getInitialSubObj(self, theSubLevel):
@@ -491,6 +514,9 @@ def main():
     else:
         logger = Logger()
     apk = APKWrapper(args[0], theSdkPath=options.sdkPath, theLogger=logger)
+    print apk.getManifest()
+    print apk.getActivityNameList()
+    print apk.getMainActivityName()
     print apk.getServiceNameList()
     print 'MD5 %s' % apk.getMd5Hash()
     print 'SHA256 %s' % apk.getSha256Hash()

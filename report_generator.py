@@ -30,9 +30,9 @@ class ReportGenerator:
         report.write('<li><b>cleanImageDir</b>: %s' % theReportData['cleanImageDir'])
 
         report.write('<h2>Apps</h2>')
-        report.write('<table><tr><th>ID</th><th>Package</th><th>APK Path</th><th>Cipher</th><th>FS</th><th>Net</th><th>SSL</th><th>SMS</th><th>Errors</th></tr>')
+        report.write('<table><tr><th>ID</th><th>Package</th><th>APK Path</th><th>Call</th><th>Cipher</th><th>FS</th><th>Net</th><th>SSL</th><th>SMS</th><th>Errors</th></tr>')
         for app in theReportData['appList']:
-            report.write('<tr><td><li><a href="%s">%06d</a></li></td><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td>' % (app['reportName'], app['id'], app['appPackage'], app['appPath'], app['numCipherUsage'], app['numFileSystem'], app['numNetwork'], app['numSSL'], app['numSMS'], app['numErrors']))
+            report.write('<tr><td><li><a href="%s">%06d</a></li></td><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td>' % (app['reportName'], app['id'], app['appPackage'], app['appPath'], app['numCallAction'], app['numCipherUsage'], app['numFileSystem'], app['numNetwork'], app['numSSL'], app['numSMS'], app['numErrors']))
         report.write('</table>')
         
         report.write('<h2>Logs</h2>')
@@ -67,15 +67,22 @@ class ReportGenerator:
         report.write('<li><b>cleanImageDir</b>: %s' % theResultEntry['cleanImageDir'])        
         report.write('<li><b>MD5 (hex)</b>: %s' % app.getMd5Hash())
         report.write('<li><b>Sha256 (hex)</b>: %s' % app.getSha256Hash())
+        report.write('<li><b>maxLogcatSize</b>: %d' % theResultEntry['maxLogcatSize'])        
         
         report.write('<h2>Log</h2>')
         if log is None:
+            report.write('<h3>CallUsage</h3>')
             report.write('<h3>CipherUsage</h3>')
             report.write('<h3>FileSystem</h3>')
             report.write('<h3>Network</h3>')
             report.write('<h3>SSL</h3>')
             report.write('<h3>SMS</h3>')
         else:
+            ReportGenerator.__generateReportLogTable(report,
+                                                     'Call',
+                                                     ['DialString', 'Timestamp', 'StackTrace'],
+                                                     log.getLogEntryList(theType=CallActionLogEntry)
+                                                     )
             ReportGenerator.__generateReportLogTable(report,
                                                      'CipherUsage',
                                                      ['Tag', 'Mode', 'PlainText', 'Timestamp', 'StackTrace'],
@@ -98,13 +105,21 @@ class ReportGenerator:
                                                      )
             ReportGenerator.__generateReportLogTable(report,
                                                      'SMS',
-                                                     ['Tag', 'Action', 'Source', 'Destination', 'Text', 'Timestamp', 'StackTrace'],
+                                                     ['Tag', 'Action', 'Source', 'Destination', 'Dest Tag', 'Text', 'Timestamp', 'StackTrace'],
                                                      log.getLogEntryList(theType=SendSmsLogEntry)
                                                      )
         
         report.write('<h2>Errors</h2>')
+        if theResultEntry.has_key('badCancelationFlag'):
+            report.write('<li>Thread could not be finished</li>')
         for error in theResultEntry['errorList']:
-            report.write('<li>%s</li>' % str(error))
+            try:
+                report.write('<li>%s</li>' % str(error))
+            except UnicodeDecodeError, udErr:
+                report.write('<li>Decode error: %s</li>' % str(udErr))
+                report.write('<li>')
+                report.write(error)
+                report.write('</li>')
         
         report.write('</p></body></html>')
 
@@ -122,7 +137,8 @@ class ReportGenerator:
             theReport.write('<tr>')
             for column in logEntry.getHtmlReportColumnList():
                 theReport.write('<td>')
-                theReport.write(column)
+                if not column is None:
+                    theReport.write(column)
                 theReport.write('</td>')
             theReport.write('</tr>')
         

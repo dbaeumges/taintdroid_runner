@@ -44,6 +44,25 @@ Log files:
 ** logcat: <reportPathSuffix>_yyyyMMdd-HHmm/<apkname>_logcat.log
 
 
+Version 0.5:
+------------
+* Changes
+** Make TaintDroid Runner more error resistant
+*** New methods for killing processes
+*** Do not ignore crashes
+*** Remove possible deadlocks in pprocess usage and logging
+** Change logcat behavior
+*** Use log redirection instead of direct read of logcat
+
+* New features
+** Log GSM call activites
+** New JSON mode which generates JSON main files
+** New MS mode for storing data in database
+
+* Files
+** helper_unify_apps.py
+
+
 Version 0.4:
 ------------
 * Changes

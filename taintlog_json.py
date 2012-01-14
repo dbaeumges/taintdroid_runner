@@ -40,7 +40,33 @@ class JsonBase:
         setdefault(self.__dict__, name, []).insert(index, value)
         
     def update(self, name, **keys):
-        setdefault(self, name, {}).update(keys) 
+        setdefault(self, name, {}).update(keys)
+
+
+# ================================================================================
+# Json Reporting Objects
+# ================================================================================
+class BaseReportEntry(JsonBase):
+    pass
+
+class AppReportEntry(BaseReportEntry):
+    """
+    """
+    id = 0
+    appPackage = ''
+    appPath = ''
+    logcatFile = ''
+    md5Hash = ''
+    startTime = ''
+    endTime = ''
+
+class MainReportEntry(BaseReportEntry):
+    """
+    """
+    workingDir = ''
+    startTime = ''
+    endTime = ''
+    appList = []
 
 
 # ================================================================================
@@ -56,6 +82,23 @@ class ErrorLogEntry(BaseLogEntry):
     stackTraceStr = ''
     stackTrace = [] # filled by postProcess
     timestamp = ''
+
+class CallActionLogEntry(BaseLogEntry):
+    """
+    """
+    dialString = ''
+    stackTraceStr = ''
+    stackTrace = [] # filled by postProcess
+    timestamp = ''
+
+    def getOverviewLogStr(self):
+        return 'CallAction, dialString: %s' % (self.dialString)
+
+    def getHtmlReportColumnList(self):
+        columnList = [self.dialString]        
+        columnList.append(self.timestamp)
+        columnList.append(self.stackTraceStr)
+        return columnList
 
 class CipherUsageLogEntry(BaseLogEntry):
     """
@@ -163,6 +206,7 @@ class SendSmsLogEntry(BaseLogEntry):
     action = 0 # TaintLogActionEnum.SMS_*
     tag = TaintTagEnum.TAINT_CLEAR
     destination = ''
+    destinationTag = TaintTagEnum.TAINT_CLEAR
     scAddress = ''
     text = ''
     stackTraceStr = ''
@@ -170,13 +214,14 @@ class SendSmsLogEntry(BaseLogEntry):
     timestamp = ''
     
     def getOverviewLogStr(self):
-        return 'NetworkAccess (%s), tag: %s, destination: %s' % (TaintLogActionEnum.getActionString(self.action), TaintTagEnum.getTaintString(self.tag), self.destination)
+        return 'NetworkAccess (%s), tag: %s, destination: %s (%s), source: %s, text: %s, timestamp: %s' % (TaintLogActionEnum.getActionString(self.action), TaintTagEnum.getTaintString(self.tag), self.destination, TaintTagEnum.getTaintString(self.destinationTag), self.scAddress, self.text, self.timestamp)
 
     def getHtmlReportColumnList(self):
         columnList = [TaintTagEnum.getTaintString(self.tag)]
         columnList.append(TaintLogActionEnum.getActionString(self.action))
         columnList.append(self.scAddress)
         columnList.append(self.destination)
+        columnList.append(TaintTagEnum.getTaintString(self.destinationTag))
         columnList.append(self.text)
         columnList.append(self.timestamp)
         columnList.append(self.stackTraceStr)
@@ -211,7 +256,9 @@ def _JSONDecoder(theDict):
     if type == None: return theDict
 
     # Log objects
-    if '__CipherUsageLogEntry__' == type:
+    if '__CallActionLogEntry__' == type:
+        object = CallActionLogEntry()
+    elif '__CipherUsageLogEntry__' == type:
         object = CipherUsageLogEntry()
     elif '__FileDescriptorLogEntry__' == type:
         object = FileDescriptorLogEntry()
@@ -223,6 +270,12 @@ def _JSONDecoder(theDict):
         object = SSLLogEntry()
     elif '__SendSmsLogEntry__' == type:
         object = SendSmsLogEntry()
+
+    # Report objects
+    elif '__AppReportEntry__' == type:
+        object = AppReportEntry()
+    elif '__MainReportEntry__' == type:
+        object = MainReportEntry()
         
     # Else...
     else:
