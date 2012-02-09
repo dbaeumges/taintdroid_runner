@@ -483,7 +483,7 @@ class APKWrapper:
         theMainObj = {}
 
     def __finishSubLevel(self, theSubLevel, theSubObj, theMainObj):        
-        if theSubLevel == self.Level.INTENT_FILTER:
+        if theSubLevel == self.Level.INTENT_FILTER and theMainObj.has_key('intentFilterList'):
             theMainObj['intentFilterList'].append(copy.deepcopy(theSubObj))
         theSubObj = {}
 

@@ -73,7 +73,43 @@ class MainReportEntry(BaseReportEntry):
 # Json Log Objects (comming from TaintDroid)
 # ================================================================================
 class BaseLogEntry(JsonBase):
-    pass
+    def doesActionMatch(self, theOther):
+        #if theOther.action != 0 and theOther.action != self.action:
+        #    return False
+        if theOther.__dict__.has_key('actionList') and len(theOther.actionList) > 0:
+            match = False
+            for action in theOther.actionList:
+                if self.action == action:
+                    match = True
+                    break
+            if not match:
+                return False
+            else:
+                return True
+        else:
+            return True
+            
+    def doesStackTraceMatch(self, theOther):
+        if theOther.stackTraceStr == '' or theOther.stackTraceStr is None:
+            return True
+        if self.stackTraceStr.find(theOther.stackTraceStr) != -1:
+            return True
+        return False
+
+    def doesTagMatch(self, theOther):
+        if theOther.tag == -1 and int(self.tag, 16) != 0:
+            return False
+        if theOther.__dict__.has_key('tagList') and len(theOther.tagList) > 0:
+            match = False
+            for tag in theOther.tagList:
+                if int(self.tag, 16) & tag:
+                    match = True
+            if not match:
+                return False
+            else:
+                return True
+        else:
+            return True
 
 class ErrorLogEntry(BaseLogEntry):
     """
@@ -86,20 +122,34 @@ class ErrorLogEntry(BaseLogEntry):
 class CallActionLogEntry(BaseLogEntry):
     """
     """
+    tag = TaintTagEnum.TAINT_CLEAR
     dialString = ''
     stackTraceStr = ''
     stackTrace = [] # filled by postProcess
     timestamp = ''
 
+    def doesMatch(self, theOther):
+        if not isinstance(theOther, CallActionLogEntry):
+            return False
+        #if not self.doesTagMatch(theOther):
+        #    return False     
+        if theOther.dialString != '' and theOther.dialString != self.dialString:
+            return False
+        if not self.doesStackTraceMatch(theOther):
+            return False
+        return True
+
     def getOverviewLogStr(self):
         return 'CallAction, dialString: %s' % (self.dialString)
 
     def getHtmlReportColumnList(self):
-        columnList = [self.dialString]        
+        columnList = [TaintTagEnum.getTaintString(self.tag)]
+        columnList.append(self.dialString)
         columnList.append(self.timestamp)
         columnList.append(self.stackTraceStr)
         return columnList
-
+    
+    
 class CipherUsageLogEntry(BaseLogEntry):
     """
     """
@@ -112,6 +162,17 @@ class CipherUsageLogEntry(BaseLogEntry):
     stackTraceStr = ''
     stackTrace = [] # filled by postProcess
     timestamp = ''
+
+    def doesMatch(self, theOther):
+        if not isinstance(theOther, CipherUsageLogEntry):
+            return False
+        if not self.doesActionMatch(theOther):
+            return False
+        if not self.doesTagMatch(theOther):
+            return False        
+        if not self.doesStackTraceMatch(theOther):
+            return False
+        return True
     
     def getOverviewLogStr(self):
         return 'CipherUsage (%s), id: %d, tag: %s, mode: %d' % (self.action, self.id, TaintTagEnum.getTaintString(self.tag), self.mode)
@@ -135,10 +196,24 @@ class FileSystemLogEntry(BaseLogEntry):
     tag = TaintTagEnum.TAINT_CLEAR
     fileDescriptor = 0
     filePath = '' # filled by postProcess
+    taintLogId = 0
     data = ''
     stackTraceStr = ''    
     stackTrace = [] # filled by postProcess
     timestamp = ''
+
+    def doesMatch(self, theOther):
+        if not isinstance(theOther, FileSystemLogEntry):
+            return False
+        if not self.doesActionMatch(theOther):
+            return False
+        if not self.doesTagMatch(theOther):
+            return False
+        if theOther.filePath != '' and theOther.filePath != self.filePath:
+            return False
+        if not self.doesStackTraceMatch(theOther):
+            return False
+        return True
 
     def getOverviewLogStr(self):
         return 'FileSystemAccess (%s), tag: %s, file: %s (%d)' % (TaintLogActionEnum.getActionString(self.action), TaintTagEnum.getTaintString(self.tag), self.filePath, self.fileDescriptor)
@@ -147,6 +222,7 @@ class FileSystemLogEntry(BaseLogEntry):
         columnList = [TaintTagEnum.getTaintString(self.tag)]
         columnList.append(TaintLogActionEnum.getActionString(self.action))
         columnList.append(self.filePath)
+        columnList.append('%d' % self.taintLogId)
         columnList.append(self.data)
         columnList.append(self.timestamp)
         columnList.append(self.stackTraceStr)
@@ -159,10 +235,26 @@ class NetworkSendLogEntry(BaseLogEntry):
     tag = TaintTagEnum.TAINT_CLEAR
     destination = ''
     port = 0
+    taintLogId = 0
     data = ''
     stackTraceStr = ''
     stackTrace = [] # filled by postProcess
     timestamp = ''
+
+    def doesMatch(self, theOther):
+        if not isinstance(theOther, NetworkSendLogEntry):
+            return False
+        if not self.doesActionMatch(theOther):
+            return False
+        if not self.doesTagMatch(theOther):
+            return False
+        if theOther.destination != '' and theOther.destination != self.destination:
+            return False
+        if theOther.port != 0 and theOther.port != self.port:
+            return False
+        if not self.doesStackTraceMatch(theOther):
+            return False
+        return True
     
     def getOverviewLogStr(self):
         return 'NetworkAccess (%s), tag: %s, destination: %s:%d' % (TaintLogActionEnum.getActionString(self.action), TaintTagEnum.getTaintString(self.tag), self.destination, self.port)
@@ -171,6 +263,7 @@ class NetworkSendLogEntry(BaseLogEntry):
         columnList = [TaintTagEnum.getTaintString(self.tag)]
         columnList.append(TaintLogActionEnum.getActionString(self.action))
         columnList.append('%s:%d' % (self.destination, self.port))
+        columnList.append('%d' % self.taintLogId)
         columnList.append(self.data)
         columnList.append(self.timestamp)
         columnList.append(self.stackTraceStr)
@@ -187,6 +280,19 @@ class SSLLogEntry(BaseLogEntry):
     stackTraceStr = ''
     stackTrace = [] # filled by postProcess
     timestamp = ''
+
+    def doesMatch(self, theOther):
+        if not isinstance(theOther, SSLLogEntry):
+            return False
+        if not self.doesActionMatch(theOther):
+            return False
+        if not self.doesTagMatch(theOther):
+            return False
+        if theOther.destination != '' and theOther.destination != self.destination:
+            return False
+        if not self.doesStackTraceMatch(theOther):
+            return False
+        return True
     
     def getOverviewLogStr(self):
         return 'SSL (%s), tag: %s, destination: %s:%d' % (TaintLogActionEnum.getActionString(self.action), TaintTagEnum.getTaintString(self.tag), self.destination, self.port)
@@ -212,9 +318,31 @@ class SendSmsLogEntry(BaseLogEntry):
     stackTraceStr = ''
     stackTrace = [] # filled by postProcess
     timestamp = ''
+
+    def doesMatch(self, theOther):
+        if not isinstance(theOther, SendSmsLogEntry):
+            return False
+        if not self.doesActionMatch(theOther):
+            return False
+        if not self.doesTagMatch(theOther):
+            return False
+        if theOther.destination != '' and theOther.destination != self.destination:
+            return False
+        if theOther.destinationTag == -1 and int(self.destinationTag, 16) != 0:
+            return False
+        if theOther.__dict__.has_key('destinationTagList') and len(theOther.destinationTagList) > 0:
+            match = False
+            for tag in theOther.destinationTagList:
+                if int(self.destinationTag, 16) & tag:
+                    match = True
+            if not match:
+                return False        
+        if not self.doesStackTraceMatch(theOther):
+            return False
+        return True
     
     def getOverviewLogStr(self):
-        return 'NetworkAccess (%s), tag: %s, destination: %s (%s), source: %s, text: %s, timestamp: %s' % (TaintLogActionEnum.getActionString(self.action), TaintTagEnum.getTaintString(self.tag), self.destination, TaintTagEnum.getTaintString(self.destinationTag), self.scAddress, self.text, self.timestamp)
+        return 'SMS (%s), tag: %s, destination: %s (%s), source: %s, text: %s, timestamp: %s' % (TaintLogActionEnum.getActionString(self.action), TaintTagEnum.getTaintString(self.tag), self.destination, TaintTagEnum.getTaintString(self.destinationTag), self.scAddress, self.text, self.timestamp)
 
     def getHtmlReportColumnList(self):
         columnList = [TaintTagEnum.getTaintString(self.tag)]

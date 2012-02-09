@@ -188,10 +188,6 @@ class TaintLogAnalyzer:
                isinstance(logEntry, SendSmsLogEntry):
                 stackTrace = logEntry.stackTraceStr.split('||')
                 logEntry.stackTrace = stackTrace[:len(stackTrace)-1]
-
-            # Filter log entry?
-            if self.__removeLogObjectByFilter(logEntry):
-                filteredLogEntryList.append(logEntryIndex)
                 
             # Cipher cleaning (combine inputs and outputs)
             if isinstance(logEntry, CipherUsageLogEntry):
@@ -246,23 +242,63 @@ class TaintLogAnalyzer:
                 delLogEntryIdxList.extend(logEntry[1])
 
             # Do drop
-            delLogEntryIdxList.sort()
-            for i in xrange(len(delLogEntryIdxList)):
-                del self.logEntryList[delLogEntryIdxList[i] - i]
+            self.__deleteStaleLogObjects(delLogEntryIdxList)
             
 
         # Add cleaned cipher usage objects
         for id, logEntry in cipherUsageDict.iteritems():
             self.logEntryList.append(logEntry[0])
 
+    def __deleteStaleLogObjects(self, theDelLogEntryIdxList):
+        """
+        Delete all log entries whose indices are included in the provided
+        delete log entry index list.
+        """
+        theDelLogEntryIdxList.sort()
+        for i in xrange(len(theDelLogEntryIdxList)):
+            del self.logEntryList[theDelLogEntryIdxList[i] - i]
+            
 
-    def __removeLogObjectByFilter(self, theLogObject):
+    def filterLogObjects(self, theFilterList):
+        """
+        Remove entries which match to one of the provided patterns.
+        """
+        delLogEntryIdxList = []
+        logEntryIndex = 0
+        for logEntry in self.logEntryList:
+            if self.__matches(logEntry, theFilterList):
+                delLogEntryIdxList.append(logEntryIndex)
+            logEntryIndex += 1
+        self.__deleteStaleLogObjects(delLogEntryIdxList)
+        
+    def __matches(self, theLogObject, thePatternList):
         """
         Returns if log object should be filtered.
         """
-        return False
-            
+        for pattern in thePatternList:
+            if theLogObject.doesMatch(pattern):
+                return True
 
+    def getMatchingLogEntries(self, thePatternList):
+        """
+        Returns a list of log entries matching with one of the provided patterns
+        """
+        logEntryList = []
+        for logEntry in self.logEntryList:
+            if self.__matches(logEntry, thePatternList):
+                logEntryList.append(logEntry)
+        return logEntryList
+
+    def doesMatch(self, thePatternList):
+        """
+        Returns if there are any log entries matching to one of the provided
+        patterns.
+        """
+        for logEntry in self.logEntryList:
+            if self.__matches(logEntry, thePatternList):
+                return True
+        return False
+        
     def printOverview(self):
         """
         Print overview.

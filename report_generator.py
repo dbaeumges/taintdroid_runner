@@ -80,7 +80,7 @@ class ReportGenerator:
         else:
             ReportGenerator.__generateReportLogTable(report,
                                                      'Call',
-                                                     ['DialString', 'Timestamp', 'StackTrace'],
+                                                     ['Tag', 'DialString', 'Timestamp', 'StackTrace'],
                                                      log.getLogEntryList(theType=CallActionLogEntry)
                                                      )
             ReportGenerator.__generateReportLogTable(report,
@@ -90,12 +90,12 @@ class ReportGenerator:
                                                      )
             ReportGenerator.__generateReportLogTable(report,
                                                      'FileSystem',
-                                                     ['Tag', 'Action', 'File', 'Data', 'Timestamp', 'StackTrace'],
+                                                     ['Tag', 'Action', 'File', 'Id', 'Data', 'Timestamp', 'StackTrace'],
                                                      log.getLogEntryList(theType=FileSystemLogEntry)
                                                      )
             ReportGenerator.__generateReportLogTable(report,
                                                      'Network',
-                                                     ['Tag', 'Action', 'Destination', 'Data', 'Timestamp', 'StackTrace'],
+                                                     ['Tag', 'Action', 'Destination', 'Id', 'Data', 'Timestamp', 'StackTrace'],
                                                      log.getLogEntryList(theType=NetworkSendLogEntry)
                                                      )
             ReportGenerator.__generateReportLogTable(report,

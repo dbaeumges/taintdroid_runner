@@ -209,9 +209,9 @@ class RunnerThread(Thread):
             except OSError, ose:
                 self.log.error('Error during cleaning up image dir \'%s\': %s' % (theImageDirPath, ose))    
 
-    def _storeLogcatAsFile(self, theLogcatDirPath, theSampleId, theFileName, theLog):
+    def _getLogcatFileName(self, theLogcatDirPath, theSampleId, theFileName):
         """
-        Store logcat in file.
+        Generates logcat file name
         """
         if theLogcatDirPath != '':
             if not os.path.exists(theLogcatDirPath):
@@ -227,6 +227,13 @@ class RunnerThread(Thread):
                 else:
                     break
         self.log.debug('Store logcat in %s' % logcatFileName)
+        return logcatFileName
+    
+    def _storeLogcatAsFile(self, theLogcatDirPath, theSampleId, theFileName, theLog):
+        """
+        Store logcat in file.
+        """
+        logcatFileName = self._getLogcatFileName(theLogcatDirPath, theSampleId, theFileName)        
         logFile = open(logcatFileName, "w")
         logFile.write(theLog)
 
@@ -355,12 +362,15 @@ class RunnerThread(Thread):
             # Store log in logfile
             #log = theEmulator.getLog()
             theEmulator.stopLogcatRedirect()
-            log = theEmulator.getLogcatRedirectFile(logcatRedirectFile)
-            self._storeLogcatAsFile(self.tdRunnerMain._getLogDirPath(), theApp.getId(), theApp.getApkName(), log)
+            #log = theEmulator.getLogcatRedirectFile(logcatRedirectFile)
+            #self._storeLogcatAsFile(self.tdRunnerMain._getLogDirPath(), theApp.getId(), theApp.getApkName(), log)
+            logcatFileName = self._getLogcatFileName(self.tdRunnerMain._getLogDirPath(), theApp.getId(), theApp.getApkName())
+            theEmulator.storeLogcatRedirectFile(logcatRedirectFile, logcatFileName)
             
             # Build LogAnalyzer
             logAnalyzer = TaintLogAnalyzer(theLogger=self.log)
-            logAnalyzer.setLogString(log)
+            #logAnalyzer.setLogString(log)
+            logAnalyzer.setLogFile(logcatFileName)
             logAnalyzer.extractLogEntries()
             logAnalyzer.postProcessLogObjects()
             self.result['errorList'].extend(logAnalyzer.getJson2PyFailedErrorList())
