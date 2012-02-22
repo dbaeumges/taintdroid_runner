@@ -24,6 +24,7 @@ class Analyzer:
         self.baseAppDir = None
         self.printDictFile = None
         self.htmlOutputDir = None
+        self.reportAppDir = None
         
     def getRuntime(self, theObj):
         startTime = datetime.datetime(int(theObj.startTime[0:4]),
@@ -82,19 +83,37 @@ class Analyzer:
             logcatFile = os.path.join(theDir, theLogcatFile)
         else:
             logcatFile = os.path.join(theDir, logcatFileParts[1])
-        logAnalyzer = TaintLogAnalyzer(theLogger=Logger(theLevel=LogLevel.ERROR))
+        logAnalyzer1 = TaintLogAnalyzer(theLogger=Logger(theLevel=LogLevel.ERROR))
         try:
-            logAnalyzer.setLogFile(logcatFile)
+            logAnalyzer1.setLogFile(logcatFile)
         except IOError, ioErr:
             #raw_input('getAppTaintLog::IOError')
             return None
-        logAnalyzer.extractLogEntries()
-        if len(logAnalyzer.getLogEntryList()) == 0:
-            logAnalyzer.numControlChars = 1
-            logAnalyzer.extractLogEntries()
-        if len(logAnalyzer.getLogEntryList()) == 0:
+        logAnalyzer1.extractLogEntries()
+
+        logAnalyzer2 = TaintLogAnalyzer(theLogger=Logger(theLevel=LogLevel.ERROR))
+        logAnalyzer2.setLogFile(logcatFile)
+        logAnalyzer2.numControlChars = 2
+        logAnalyzer2.extractLogEntries()
+
+        #print len(logAnalyzer1.getLogEntryList())
+        #print len(logAnalyzer1.getJson2PyFailedList())
+        #print '2: ', len(logAnalyzer2.getLogEntryList())
+        #print len(logAnalyzer2.getJson2PyFailedList())
+        #raw_input('xx')
+
+        if len(logAnalyzer1.getLogEntryList()) > len(logAnalyzer2.getLogEntryList()) and \
+           len(logAnalyzer1.getJson2PyFailedList()) < len(logAnalyzer2.getJson2PyFailedList()):
+            logAnalyzer = logAnalyzer1
+        else:
+            logAnalyzer = logAnalyzer2
+        
+        #if len(logAnalyzer.getLogEntryList()) == 0:
+        #    logAnalyzer.numControlChars = 2
+        #    logAnalyzer.extractLogEntries()
+        #if len(logAnalyzer.getLogEntryList()) == 0:
             #raw_input('XX')
-            pass
+        #    pass
         logAnalyzer.postProcessLogObjects()
         return logAnalyzer
 
@@ -121,21 +140,32 @@ class Analyzer:
                             'location':[0,[]],
                             'other':[0,[]],
                             'nothing':[0,[]]}
-    def evalTagNumbers(self, theTaintLog, theApk, theBaseObj, theNumbers, theAppendApkFlag=True):
+    def evalTagNumbers(self, theTaintLog, theApk, theBaseObj, theNumbers, theReportMode=False):
         oneMatch = False
         
         noTag = copy.deepcopy(theBaseObj)
         noTag.tag = -1
         if theTaintLog.doesMatch([noTag]):
-            theNumbers['noTag'][0] += 1
-            if theAppendApkFlag: theNumbers['noTag'][1].append(theApk)
+            if theReportMode:
+                theNumbers['noTag'][0] += len(theTaintLog.getMatchingLogEntries([noTag]))
+            else:
+                theNumbers['noTag'][0] += 1
+                theNumbers['noTag'][1].append(theApk)
             oneMatch = True
+
+        if isinstance(theBaseObj, CallActionLogEntry) and oneMatch:
+            for key, value in self.INITIAL_NUMBERS_DICT.iteritems():
+                if key != 'noTag' and key != 'nothing':
+                    theNumbers[key][0] -= 1
             
         contact = copy.deepcopy(theBaseObj)
         contact.tagList.append(TaintTagEnum.TAINT_CONTACTS)
         if theTaintLog.doesMatch([contact]):
-            theNumbers['contact'][0] += 1
-            if theAppendApkFlag: theNumbers['contact'][1].append(theApk)
+            if theReportMode:
+                theNumbers['contact'][0] += len(theTaintLog.getMatchingLogEntries([contact]))
+            else:
+                theNumbers['contact'][0] += 1
+                theNumbers['contact'][1].append(theApk)
             oneMatch = True
             
         deviceInfos = copy.deepcopy(theBaseObj)
@@ -145,22 +175,31 @@ class Analyzer:
         deviceInfos.tagList.append(TaintTagEnum.TAINT_ICCID)
         deviceInfos.tagList.append(TaintTagEnum.TAINT_DEVICE_SN)
         if theTaintLog.doesMatch([deviceInfos]):
-            theNumbers['deviceInfos'][0] += 1
-            if theAppendApkFlag: theNumbers['deviceInfos'][1].append(theApk)
+            if theReportMode:
+                theNumbers['deviceInfos'][0] += len(theTaintLog.getMatchingLogEntries([deviceInfos]))
+            else:
+                theNumbers['deviceInfos'][0] += 1
+                theNumbers['deviceInfos'][1].append(theApk)
             oneMatch = True
             
         userInput = copy.deepcopy(theBaseObj)
         userInput.tagList.append(TaintTagEnum.TAINT_USER_INPUT)
         if theTaintLog.doesMatch([userInput]):
-            theNumbers['userInput'][0] += 1
-            if theAppendApkFlag: theNumbers['userInput'][1].append(theApk)
+            if theReportMode:
+                theNumbers['userInput'][0] += len(theTaintLog.getMatchingLogEntries([userInput]))
+            else:
+                theNumbers['userInput'][0] += 1
+                theNumbers['userInput'][1].append(theApk)
             oneMatch = True
             
         incomingData = copy.deepcopy(theBaseObj)
         incomingData.tagList.append(TaintTagEnum.TAINT_INCOMING_DATA)
         if theTaintLog.doesMatch([incomingData]):
-            theNumbers['incomingData'][0] += 1
-            if theAppendApkFlag: theNumbers['incomingData'][1].append(theApk)
+            if theReportMode:
+                theNumbers['incomingData'][0] += len(theTaintLog.getMatchingLogEntries([incomingData]))
+            else:
+                theNumbers['incomingData'][0] += 1
+                theNumbers['incomingData'][1].append(theApk)
             oneMatch = True
             
         location = copy.deepcopy(theBaseObj)
@@ -169,8 +208,11 @@ class Analyzer:
         location.tagList.append(TaintTagEnum.TAINT_LOCATION_NET)
         location.tagList.append(TaintTagEnum.TAINT_LOCATION_LAST)
         if theTaintLog.doesMatch([location]):
-            theNumbers['location'][0] += 1
-            if theAppendApkFlag: theNumbers['location'][1].append(theApk)
+            if theReportMode:
+                theNumbers['location'][0] += len(theTaintLog.getMatchingLogEntries([location]))
+            else:
+                theNumbers['location'][0] += 1
+                theNumbers['location'][1].append(theApk)
             oneMatch = True
             
         other = copy.deepcopy(theBaseObj)
@@ -181,31 +223,34 @@ class Analyzer:
         other.tagList.append(TaintTagEnum.TAINT_MEDIA)
         other.tagList.append(TaintTagEnum.TAINT_SMS)
         if theTaintLog.doesMatch([other]):
-            theNumbers['other'][0] += 1
-            if theAppendApkFlag: theNumbers['other'][1].append(theApk)
+            if theReportMode:
+                theNumbers['other'][0] += len(theTaintLog.getMatchingLogEntries([other]))
+            else:
+                theNumbers['other'][0] += 1
+                theNumbers['other'][1].append(theApk)
             oneMatch = True
 
         if not oneMatch:
             theNumbers['nothing'][0] += 1
-            if theAppendApkFlag: theNumbers['nothing'][1].append(theApk)
+            if theReportMode: theNumbers['nothing'][1].append(theApk)
 
         return oneMatch
 
-    def evalSmsDestTagNumbers(self, theTaintLog, theApk, theBaseObj, theNumbers, theAppendApkFlag=True):
+    def evalSmsDestTagNumbers(self, theTaintLog, theApk, theBaseObj, theNumbers):
         oneMatch = False
         
         noTag = copy.deepcopy(theBaseObj)
         noTag.destinationTag = -1
         if theTaintLog.doesMatch([noTag]):
             theNumbers['noTag'][0] += 1
-            if theAppendApkFlag: theNumbers['noTag'][1].append(theApk)
+            theNumbers['noTag'][1].append(theApk)
             oneMatch = True
             
         contact = copy.deepcopy(theBaseObj)
         contact.destinationTagList.append(TaintTagEnum.TAINT_CONTACTS)
         if theTaintLog.doesMatch([contact]):
             theNumbers['contact'][0] += 1
-            if theAppendApkFlag: theNumbers['contact'][1].append(theApk)
+            theNumbers['contact'][1].append(theApk)
             oneMatch = True
             
         deviceInfos = copy.deepcopy(theBaseObj)
@@ -216,21 +261,21 @@ class Analyzer:
         deviceInfos.destinationTagList.append(TaintTagEnum.TAINT_DEVICE_SN)
         if theTaintLog.doesMatch([deviceInfos]):
             theNumbers['deviceInfos'][0] += 1
-            if theAppendApkFlag: theNumbers['deviceInfos'][1].append(theApk)
+            theNumbers['deviceInfos'][1].append(theApk)
             oneMatch = True
             
         userInput = copy.deepcopy(theBaseObj)
         userInput.destinationTagList.append(TaintTagEnum.TAINT_USER_INPUT)
         if theTaintLog.doesMatch([userInput]):
             theNumbers['userInput'][0] += 1
-            if theAppendApkFlag: theNumbers['userInput'][1].append(theApk)
+            theNumbers['userInput'][1].append(theApk)
             oneMatch = True
             
         incomingData = copy.deepcopy(theBaseObj)
         incomingData.destinationTagList.append(TaintTagEnum.TAINT_INCOMING_DATA)
         if theTaintLog.doesMatch([incomingData]):
             theNumbers['incomingData'][0] += 1
-            if theAppendApkFlag: theNumbers['incomingData'][1].append(theApk)
+            theNumbers['incomingData'][1].append(theApk)
             oneMatch = True
             
         location = copy.deepcopy(theBaseObj)
@@ -240,7 +285,7 @@ class Analyzer:
         location.destinationTagList.append(TaintTagEnum.TAINT_LOCATION_LAST)
         if theTaintLog.doesMatch([location]):
             theNumbers['location'][0] += 1
-            if theAppendApkFlag: theNumbers['location'][1].append(theApk)
+            theNumbers['location'][1].append(theApk)
             oneMatch = True
             
         other = copy.deepcopy(theBaseObj)
@@ -252,12 +297,12 @@ class Analyzer:
         other.destinationTagList.append(TaintTagEnum.TAINT_SMS)
         if theTaintLog.doesMatch([other]):
             theNumbers['other'][0] += 1
-            if theAppendApkFlag: theNumbers['other'][1].append(theApk)
+            theNumbers['other'][1].append(theApk)
             oneMatch = True
 
         if not oneMatch:
             theNumbers['nothing'][0] += 1
-            if theAppendApkFlag: theNumbers['nothing'][1].append(theApk)
+            theNumbers['nothing'][1].append(theApk)
 
         return oneMatch
 
@@ -672,10 +717,19 @@ class Analyzer:
         # Collect information of all apps
         result = {} # app: {}
         resultType = {'apk':None,
+                      'sortName':'',
                       'taintLogList':[],
                       'taintLogFileNameList':[],
                       'logFileNameList':[],
                       'overview':copy.deepcopy(self.INITIAL_NUMBERS_DICT),
+                      'overview2':{'sms':0,
+                                   'call':0,
+                                   'netRead':0,
+                                   'netWrite':0,
+                                   'fsRead':0,
+                                   'fsWrite':0,
+                                   'cipher':0,
+                                   'ssl':0},
                       'details':{'sms' : copy.deepcopy(self.INITIAL_NUMBERS_DICT),
                                  'smsDest' : copy.deepcopy(self.INITIAL_NUMBERS_DICT),
                                  'call' : copy.deepcopy(self.INITIAL_NUMBERS_DICT),
@@ -685,7 +739,8 @@ class Analyzer:
                                  'fsWrite' : copy.deepcopy(self.INITIAL_NUMBERS_DICT),
                                  'cipher' : copy.deepcopy(self.INITIAL_NUMBERS_DICT),
                                  'ssl' : copy.deepcopy(self.INITIAL_NUMBERS_DICT)},
-                      'fileName':''}
+                      'fileName':'',
+                      'rawDirectory':[]}
         
         for directory in self.dirs:
             mainReport = self.getMainReport(directory, jsonFactory)
@@ -698,57 +753,99 @@ class Analyzer:
                     result[md5] = copy.deepcopy(resultType)
                     result[md5]['apk'] = apk
                 
-                # Taint log
+                # Taint log and appropriate file names
                 taintLog = self.getAppTaintLog(directory, appReport.logcatFile)
                 if taintLog is None:
-                    pass
+                    fileNameList = os.listdir(directory)
+                    for logFile in fileNameList:
+                        if logFile.endswith('_%s_log.log' % str(appReport.id)):
+                            result[md5]['logFileNameList'].append(logFile)
+                            break
                 else:
                     result[md5]['taintLogFileNameList'].append(appReport.logcatFile)
                     result[md5]['taintLogList'].append(taintLog)
+                    result[md5]['logFileNameList'].append(appReport.logcatFile[:-7] + '.log')
 
-                # Log file(s)
-                result[md5]['logFileNameList'].append(appReport.logcatFile[:-7] + '.log')
+                # Raw directory
+                fileNameParts = directory.split('/')
+                if len(fileNameParts) < 2:
+                    rawDir = directory
+                else:
+                    if fileNameParts[-1] != '':
+                        rawDir = fileNameParts[-1]
+                    else:
+                        rawDir = fileNameParts[-2]
+                result[md5]['rawDirectory'].append(rawDir)
+
+                # Sort name
+                result[md5]['sortName'] = '%s-%s' % (apk.getPackage(), md5)
 
         # Evaluate results
         for appMd5, appResult in result.iteritems():
             for taintLog in appResult['taintLogList']:
-                oneMatch = self.evalTagNumbers(taintLog, appResult['apk'], CallActionLogEntry(tagList=[]), appResult['details']['call'])
-                oneMatch |= self.evalTagNumbers(taintLog, appResult['apk'], CipherUsageLogEntry(tagList=[]), appResult['details']['cipher'])
+                oneMatch = self.evalTagNumbers(taintLog, appResult['apk'], CallActionLogEntry(tagList=[]), appResult['details']['call'], theReportMode=True)
+                oneMatch |= self.evalTagNumbers(taintLog, appResult['apk'], CipherUsageLogEntry(tagList=[]), appResult['details']['cipher'], theReportMode=True)
                 oneMatch |= self.evalTagNumbers(taintLog, appResult['apk'], FileSystemLogEntry(actionList=[TaintLogActionEnum.FS_READ_ACTION,
                                                                                   TaintLogActionEnum.FS_READ_DIRECT_ACTION,
                                                                                   TaintLogActionEnum.FS_READV_ACTION],
                                                                       tagList=[]),
-                                    appResult['details']['fsRead'])
+                                    appResult['details']['fsRead'], theReportMode=True)
                 oneMatch |= self.evalTagNumbers(taintLog, appResult['apk'], FileSystemLogEntry(actionList=[TaintLogActionEnum.FS_WRITE_ACTION,
                                                                                   TaintLogActionEnum.FS_WRITE_DIRECT_ACTION,
                                                                                   TaintLogActionEnum.FS_WRITEV_ACTION],
                                                                       tagList=[]),
-                                    appResult['details']['fsWrite'])
+                                    appResult['details']['fsWrite'], theReportMode=True)
                 oneMatch |= self.evalTagNumbers(taintLog, appResult['apk'], NetworkSendLogEntry(actionList=[TaintLogActionEnum.NET_READ_ACTION,
                                                                                    TaintLogActionEnum.NET_READ_DIRECT_ACTION,
                                                                                    TaintLogActionEnum.NET_RECV_ACTION,
                                                                                    TaintLogActionEnum.NET_RECV_DIRECT_ACTION],
                                                                        tagList=[]),
-                                    appResult['details']['netRead'])
+                                    appResult['details']['netRead'], theReportMode=True)
                 oneMatch |= self.evalTagNumbers(taintLog, appResult['apk'], NetworkSendLogEntry(actionList=[TaintLogActionEnum.NET_SEND_ACTION,
                                                                                    TaintLogActionEnum.NET_SEND_DIRECT_ACTION,
                                                                                    TaintLogActionEnum.NET_SEND_URGENT_ACTION,
                                                                                    TaintLogActionEnum.NET_WRITE_ACTION,
                                                                                    TaintLogActionEnum.NET_WRITE_DIRECT_ACTION],
                                                                        tagList=[]),
-                                    appResult['details']['netWrite'])
-                oneMatch |= self.evalTagNumbers(taintLog, appResult['apk'], SSLLogEntry(tagList=[]), appResult['details']['ssl'])
-                oneMatch |= self.evalTagNumbers(taintLog, appResult['apk'], SendSmsLogEntry(tagList=[]), appResult['details']['sms'])
+                                    appResult['details']['netWrite'], theReportMode=True)
+                oneMatch |= self.evalTagNumbers(taintLog, appResult['apk'], SSLLogEntry(tagList=[]), appResult['details']['ssl'], theReportMode=True)
+                oneMatch |= self.evalTagNumbers(taintLog, appResult['apk'], SendSmsLogEntry(tagList=[]), appResult['details']['sms'], theReportMode=True)
                 oneMatch |= self.evalSmsDestTagNumbers(taintLog, appResult['apk'], SendSmsLogEntry(destinationTagList=[]), appResult['details']['smsDest'])
 
                 # Nothing happens
                 if not oneMatch:
                     pass
 
+                # Get numbers of several actions
+                appResult['overview2']['sms'] += taintLog.getNumLogEntries(theType=SendSmsLogEntry)
+                appResult['overview2']['ssl'] += taintLog.getNumLogEntries(theType=SSLLogEntry)
+                appResult['overview2']['call'] += taintLog.getNumLogEntries(theType=CallActionLogEntry)
+                appResult['overview2']['cipher'] += taintLog.getNumLogEntries(theType=CipherUsageLogEntry)
+                appResult['overview2']['netRead'] += len(taintLog.getMatchingLogEntries([NetworkSendLogEntry(actionList=[TaintLogActionEnum.NET_READ_ACTION,
+                                                                                                                                TaintLogActionEnum.NET_READ_DIRECT_ACTION,
+                                                                                                                                TaintLogActionEnum.NET_RECV_ACTION,
+                                                                                                                                TaintLogActionEnum.NET_RECV_DIRECT_ACTION],
+                                                                                                                    tagList=[])]))
+                appResult['overview2']['netWrite'] += len(taintLog.getMatchingLogEntries([NetworkSendLogEntry(actionList=[TaintLogActionEnum.NET_SEND_ACTION,
+                                                                                                                                 TaintLogActionEnum.NET_SEND_DIRECT_ACTION,
+                                                                                                                                 TaintLogActionEnum.NET_SEND_URGENT_ACTION,
+                                                                                                                                 TaintLogActionEnum.NET_WRITE_ACTION,
+                                                                                                                                 TaintLogActionEnum.NET_WRITE_DIRECT_ACTION],
+                                                                                                                     tagList=[])]))
+                appResult['overview2']['fsRead'] += len(taintLog.getMatchingLogEntries([FileSystemLogEntry(actionList=[TaintLogActionEnum.FS_READ_ACTION,
+                                                                                                                             TaintLogActionEnum.FS_READ_DIRECT_ACTION,
+                                                                                                                             TaintLogActionEnum.FS_READV_ACTION],
+                                                                                                                 tagList=[])]))
+                appResult['overview2']['fsWrite'] += len(taintLog.getMatchingLogEntries([FileSystemLogEntry(actionList=[TaintLogActionEnum.FS_WRITE_ACTION,
+                                                                                                                               TaintLogActionEnum.FS_WRITE_DIRECT_ACTION,
+                                                                                                                               TaintLogActionEnum.FS_WRITEV_ACTION],
+                                                                                                                   tagList=[])]))
+
             # Add numbers to overview table
             for tag, overviewNumbers in appResult['overview'].iteritems():
                 for action, actionEntry in appResult['details'].iteritems():
-                    overviewNumbers[0] += actionEntry[tag][0]
+                    if actionEntry[tag][0] > 0:
+                        overviewNumbers[0] += 1            
                     
         # Print report (per app)
         descrDict = {'call':'Call', 'cipher':'Cipher Usage', 'fsRead':'File System Read', 'fsWrite':'File System Write', 'netRead':'Network Read', 'netWrite':'Network Write', 'ssl':'SSL', 'sms':'SMS', 'smsDest':'SMS Destination'}
@@ -757,13 +854,20 @@ class Analyzer:
         for appMd5, appResult in result.iteritems():
             appReportFileName = '%s_%s.html' % (appResult['apk'].getPackage(), appMd5)
             appResult['fileName'] = os.path.join('html', appReportFileName)
-            appReport = open(os.path.join(appHtmlOutputDir, appReportFileName), 'w')
-            appReport.write('<html><head><title>TaintDroid Runner Report for %s</title></head><body><p>' % appResult['apk'].getPackage())
-            appReport.write('<h1>TaintDroid Runner Report for %s</h1>' % appResult['apk'].getPackage())
+            appReport = open(os.path.join(appHtmlOutputDir, appReportFileName), 'w')            
+            if appResult['apk'].getPackage() != '':
+                appReport.write('<html><head><title>TaintDroid Runner Report for %s</title></head><body><p>' % appResult['apk'].getPackage())
+                appReport.write('<h1>TaintDroid Runner Report for %s</h1>' % appResult['apk'].getPackage())
+            else: # appResult['apk'].getPackage() == ''
+                appReport.write('<html><head><title>TaintDroid Runner Report for %s</title></head><body><p>' % appMd5)
+                appReport.write('<h1>TaintDroid Runner Report for %s</h1>' % appMd5)
             appReport.write('<br /><h2>Application</h2>')
-            appReport.write('<li><b>Package</b>: %s</li>' % (appResult['apk'].getPackage()))
-            appReport.write('<li><b>MD5</b>: %s</li>' % (appResult['apk'].getMd5Hash()))
+            appReport.write('<li><b>APK</b>: <a href="../../%s/%s-%s.apk">%s-%s.apk</a></li>' % (self.reportAppDir, appResult['apk'].getPackage(), appMd5, appResult['apk'].getPackage(), appMd5))
+            appReport.write('<li><b>Package</b>: %s (<a href="http://www.google.com/#sclient=psy-ab&hl=de&source=hp&q=Android+%s" target="_blank">Search Google</a>)</li>' % (appResult['apk'].getPackage(), appResult['apk'].getPackage()))
+            appReport.write('<li><b>MD5</b>: %s (<a href="http://www.google.com/#sclient=psy-ab&hl=de&source=hp&q=Android+%s" target="_blank">Search Google</a>)</li>' % (appResult['apk'].getMd5Hash(), appResult['apk'].getMd5Hash()))
             appReport.write('<li><b>Sha256</b>: %s</li>' % (appResult['apk'].getSha256Hash()))
+            appReport.write('<li><b>Number of analysis runs</b>: %d</li>' % len(appResult['logFileNameList']))
+            appReport.write('<li><b>Number of successful analysis runs</b>: %d</li>' % len(appResult['taintLogList']))
 
             appReport.write('<br /><h2>Overview</h2>')
             appReport.write('<table border="1" rules="groups">')
@@ -790,10 +894,10 @@ class Analyzer:
                 appReport.write('</tr>')                
             appReport.write('</tbody>')
 
-            appReport.write('<tfoot><tr><td></td>')
-            for tagType in tagTypeList:
-                appReport.write('<td align="center">%d</td>' % (sumDict[tagType]))
-            appReport.write('</tr></tfoot>')
+            #appReport.write('<tfoot><tr><td></td>')
+            #for tagType in tagTypeList:
+            #    appReport.write('<td align="center">%d</td>' % (sumDict[tagType]))
+            #appReport.write('</tr></tfoot>')
             
             appReport.write('</table>')
             
@@ -808,19 +912,96 @@ class Analyzer:
                     continue
 
                 appReport.write('<h3>%s</h3>' % (descrDict[action]))
+                relevantLogEntries = []
+                for taintLog in appResult['taintLogList']:
+                    if action == 'call':
+                        relevantLogEntries.extend(taintLog.getLogEntryList(theType=CallActionLogEntry))
+                        columnList = ['Tag', 'DialString']
+                    elif action == 'cipher':
+                        relevantLogEntries.extend(taintLog.getLogEntryList(theType=CipherUsageLogEntry))
+                        columnList = ['Tag', 'Mode', 'Data']
+                    elif action == 'fsRead':
+                        relevantLogEntries.extend(taintLog.getMatchingLogEntries([FileSystemLogEntry(actionList=[TaintLogActionEnum.FS_READ_ACTION,
+                                                                                                                 TaintLogActionEnum.FS_READ_DIRECT_ACTION,
+                                                                                                                 TaintLogActionEnum.FS_READV_ACTION],
+                                                                                                     tagList=[])]))
+                        columnList = ['Tag', 'Action', 'File Path', 'Data']
+                    elif action == 'fsWrite':
+                        relevantLogEntries.extend(taintLog.getMatchingLogEntries([FileSystemLogEntry(actionList=[TaintLogActionEnum.FS_WRITE_ACTION,
+                                                                                                                 TaintLogActionEnum.FS_WRITE_DIRECT_ACTION,
+                                                                                                                 TaintLogActionEnum.FS_WRITEV_ACTION],
+                                                                                                     tagList=[])]))
+                        columnList = ['Tag', 'Action', 'File Path', 'Data']
+                    elif action == 'netRead':
+                        relevantLogEntries.extend(taintLog.getMatchingLogEntries([NetworkSendLogEntry(actionList=[TaintLogActionEnum.NET_READ_ACTION,
+                                                                                                                  TaintLogActionEnum.NET_READ_DIRECT_ACTION,
+                                                                                                                  TaintLogActionEnum.NET_RECV_ACTION,
+                                                                                                                  TaintLogActionEnum.NET_RECV_DIRECT_ACTION],
+                                                                                                      tagList=[])]))
+                        columnList = ['Tag', 'Action', 'Destination', 'Data']
+                    elif action == 'netWrite':
+                        relevantLogEntries.extend(taintLog.getMatchingLogEntries([NetworkSendLogEntry(actionList=[TaintLogActionEnum.NET_SEND_ACTION,
+                                                                                                                  TaintLogActionEnum.NET_SEND_DIRECT_ACTION,
+                                                                                                                  TaintLogActionEnum.NET_SEND_URGENT_ACTION,
+                                                                                                                  TaintLogActionEnum.NET_WRITE_ACTION,
+                                                                                                                  TaintLogActionEnum.NET_WRITE_DIRECT_ACTION],
+                                                                                                      tagList=[])]))
+                        columnList = ['Tag', 'Action', 'Destination', 'Data']
+                    elif action == 'ssl':
+                        relevantLogEntries.extend(taintLog.getLogEntryList(theType=SSLLogEntry))
+                        columnList = ['Tag', 'Action', 'Destination/Source', 'Data']
+                    elif action == 'sms':
+                        relevantLogEntries.extend(taintLog.getLogEntryList(theType=SendSmsLogEntry))
+                        columnList = ['Tag (Text)', 'Action', 'Source Addr', 'Destination', 'Tag Destination', 'Text']
+
+                appReport.write('<table>')
+                appReport.write('<tr>')
+                for col in columnList:
+                    appReport.write('<th align="left">%s</th>' % col)
+                appReport.write('</tr>')
+
+                for relevantLogEntry in relevantLogEntries:
+                    appReport.write('<tr>')
+                    for col in relevantLogEntry.getHtmlReportColumnList(False):
+                        appReport.write('<td>')
+                        if not col is None:
+                            try:
+                                appReport.write(col)
+                            except:
+                                pass
+                        appReport.write('</td>')
+                    appReport.write('</tr>')
+                
+                appReport.write('</table>')
                 
 
             appReport.write('<br /><h2>Raw Files</h2>')
             for i in xrange(len(appResult['taintLogFileNameList'])):
-                appReport.write('<li>Logcat output (%d): <a href="%s">%s</a></li>' % ((i+1), appResult['taintLogFileNameList'][i], appResult['taintLogFileNameList'][i]))
+                fileNameParts = appResult['taintLogFileNameList'][i].split('/')
+                if len(fileNameParts) < 2:
+                    fileName = appResult['taintLogFileNameList'][i]
+                else:
+                    fileName = fileNameParts[1]                
+
+                hrefPath = os.path.join('raw', appResult['rawDirectory'][i], fileName)
+                appReport.write('<li>Logcat output (%d): <a href="../%s">%s</a></li>' % ((i+1), hrefPath, fileName))
             for i in xrange(len(appResult['logFileNameList'])):
-                appReport.write('<li>Log output (%d): <a href="%s">%s</a></li>' % ((i+1), appResult['logFileNameList'][i], appResult['logFileNameList'][i]))
+                fileNameParts = appResult['logFileNameList'][i].split('/')
+                if len(fileNameParts) < 2:
+                    fileName = appResult['logFileNameList'][i]
+                else:
+                    fileName = fileNameParts[1]
+
+                hrefPath = os.path.join('raw', appResult['rawDirectory'][i], fileName)
+                appReport.write('<li>Log output (%d): <a href="../%s">%s</a></li>' % ((i+1), hrefPath, fileName))
             appReport.write('</p></body></html>')
         
         # Print main report
         mainReport = open(os.path.join(self.htmlOutputDir, 'index.html'), 'w')
         mainReport.write('<html><head><title>TaintDroid Runner Report</title></head><body><p>')
         mainReport.write('<h1>TaintDroid Runner Report</h1>')
+        mainReport.write('[<a href="#tag">By Tag</a>] [<a href="#action">By Action</a>]')
+        mainReport.write('<h2><a name="tag">Overview by Tag</a></h2>')
         mainReport.write('<table border="1" rules="rows">')
         mainReport.write("""<thead><tr><th></th>
                               <th align="center">Dev. Info</th>
@@ -834,7 +1015,10 @@ class Analyzer:
         mainReport.write('<tbody>')
         for appMd5, appResult in result.iteritems():
             mainReport.write('<tr>')
-            mainReport.write('<td><a href="%s">%s</a> (%s)</td>' % (appResult['fileName'], appResult['apk'].getPackage(), appMd5))
+            if appResult['apk'].getPackage() != '':
+                mainReport.write('<td><a href="%s">%s</a> (%s)</td>' % (appResult['fileName'], appResult['apk'].getPackage(), appMd5))
+            else: # appResult['apk'].getPackage() == ''
+                mainReport.write('<td>(<a href="%s">%s</a>)</td>' % (appResult['fileName'], appMd5))
             for tagType in tagTypeList:
                 mainReport.write('<td align="center">%d</td>' % (appResult['overview'][tagType][0]))
                 if sumDict.has_key(tagType):
@@ -844,13 +1028,42 @@ class Analyzer:
             mainReport.write('</tr>')
         mainReport.write('</tbody>')
         
-        mainReport.write('<tfoot><tr><td></td>')
-        for tagType in tagTypeList:
-            mainReport.write('<td align="center">%d</td>' % (sumDict[tagType]))
-        mainReport.write('</tr></tfoot>')
+        #mainReport.write('<tfoot><tr><td></td>')
+        #for tagType in tagTypeList:
+        #    mainReport.write('<td align="center">%d</td>' % (sumDict[tagType]))
+        #mainReport.write('</tr></tfoot>')
             
         mainReport.write('</table>')
-        mainReport.write('</p></body></html>')
+
+        mainReport.write('<h2><a name="action">Overview by Action</a></h2>')
+        mainReport.write('<table border="1" rules="rows">')
+        mainReport.write('<thead><tr><th></th>')
+        for action in actionList[:-1]:
+            mainReport.write('<th align="center">%s</th>' % descrDict[action])
+        mainReport.write('</tr></thead>')
+        
+        sumDict = {}
+        mainReport.write('<tbody>')
+        for appMd5, appResult in result.iteritems():
+            mainReport.write('<tr>')
+            if appResult['apk'].getPackage() != '':
+                mainReport.write('<td><a href="%s">%s</a> (%s)</td>' % (appResult['fileName'], appResult['apk'].getPackage(), appMd5))
+            else: # appResult['apk'].getPackage() == ''
+                mainReport.write('<td>(<a href="%s">%s</a>)</td>' % (appResult['fileName'], appMd5))
+            for action in actionList[:-1]:
+                mainReport.write('<td align="center">%d</td>' % (appResult['overview2'][action]))
+                if sumDict.has_key(action):
+                    sumDict[action] += appResult['overview2'][action]
+                else:
+                    sumDict[action] = appResult['overview2'][action]
+        mainReport.write('</tbody>')
+
+        #mainReport.write('<tfoot><tr><td></td>')
+        #for action in actionList[:-1]:
+        #    mainReport.write('<td align="center">%d</td>' % (sumDict[action]))
+        #mainReport.write('</tr></tfoot>')
+        
+        mainReport.write('</table></p></body></html>')
 
 
     def findNotInstrumentedPatterns(self):
@@ -875,6 +1088,7 @@ class Analyzer:
         
         jsonFactory = JsonFactory()
         for directory in self.dirs:
+            print 'Look in %s' % directory
             mainReport = self.getMainReport(directory, jsonFactory)
             for appReport in mainReport.appList:
                 apk = self.getAppApk(appReport.appPath)
@@ -883,6 +1097,25 @@ class Analyzer:
                     if taintLog.doesMatch(notInstrumentedPatterns): # check for not instrumented patters
                         print '--------------------'
                         taintLog.printOverview()
+                        raw_input('FOUND NOT INSTRUMENTED PATTERN (!)')
+
+    def findPatterns(self):
+        patterns = []
+        appList = []
+        jsonFactory = JsonFactory()
+        for directory in self.dirs:
+            print 'Look in %s' % directory
+            mainReport = self.getMainReport(directory, jsonFactory)
+            for appReport in mainReport.appList:
+                apk = self.getAppApk(appReport.appPath)
+                taintLog = self.getAppTaintLog(directory, appReport.logcatFile)
+                if not taintLog is None:
+                    if taintLog.doesMatch(patterns): # check for not instrumented patters
+                        appList.append(apk)
+
+        print '--------------------'
+        for app in appList:
+            print '- %s (%s)' % (app.getPackage(), app.getMd5Hash())
             
     def analyze(self):
         if int(self.mode) == 0:
@@ -895,6 +1128,8 @@ class Analyzer:
             self.generateHtmlReport()
         elif int(self.mode) == 4:
             self.findNotInstrumentedPatterns()
+        elif int(self.mode) == 5:
+            self.findPatterns()
 
 # ================================================================================
 # Main method
@@ -909,6 +1144,7 @@ if __name__ == '__main__':
     parser.add_option('', '--baseAppDir', metavar='<path>', default=None, help='Set path to dicrectory in which applications are stored')
     parser.add_option('', '--printDictFile', metavar='<path>', default=None, help='Set path to file in which output dict should be printed')
     parser.add_option('', '--htmlOutputDir', metavar='<path>', default=None, help='Output directory for generated HTML report')
+    parser.add_option('', '--reportAppDir', metavar='<path>', default=None, help='Default app directory on USB stick')
     (options, args) = parser.parse_args()
 
     # Get report dir
@@ -926,4 +1162,11 @@ if __name__ == '__main__':
     analyzer.baseAppDir = options.baseAppDir
     analyzer.printDictFile = options.printDictFile
     analyzer.htmlOutputDir = options.htmlOutputDir
+    analyzer.reportAppDir = options.reportAppDir
     analyzer.analyze()
+
+    # malware full: python helper_analyzer.py -m 0 --baseAppDir /home/daniel/Documents/Malware/thesis_analysis/ ~/Documents/Malware/reports/mw_nb_1_20120112-213037/ ~/Documents/Malware/reports/mw_nb_2_20120122-111827/ ~/Documents/Malware/reports/mw_nb_3_20120122-143747/ ~/Documents/Malware/reports/mw_nb_4_20120123-215147/ ~/Documents/Malware/reports/mw_rub_full_20120123-214357/ ~/Documents/Malware/reports/mw_desk_full/
+
+    # goodware full: python helper_analyzer.py -m 0 --baseAppDir /home/daniel/Documents/MarketApps/apps/ ~/Documents/Malware/reports/gw_nb_1_20120124-064525/ ~/Documents/Malware/reports/gw_nb_2_20120124-204758/ ~/Documents/Malware/reports/gw_nb_3_20120125-210805/ ~/Documents/Malware/reports/gw_nb_4_20120126-223959/ ~/Documents/Malware/reports/gw_nb_5_20120127-195917/ ~/Documents/Malware/reports/gw_nb_6_20120129-115712/ ~/Documents/Malware/reports/gw_nb_7_20120204-195305/ ~/Documents/Malware/reports/gw_nb_8_20120205-192907/ ~/Documents/Malware/reports/gw_nb_9_20120206-194602/ ~/Documents/Malware/reports/gw_nb_10_20120207-201340/ ~/Documents/Malware/reports/gw_nb_11_20120208-192600/ ~/Documents/Malware/reports/gw_nb_12_20120209-202213/ ~/Documents/Malware/reports/gw_nb_13_20120210-205101/ ~/Documents/Malware/reports/gw_rub_1_20120125-210650/
+
+    # python helper_analyzer.py -m 3 --htmlOutputDir html_goodware --reportAppDir marketApps --baseAppDir /home/daniel/Documents/MarketApps/apps/ ~/Documents/Malware/reports/gw_nb_1_20120124-064525/ ~/Documents/Malware/reports/gw_nb_2_20120124-204758/ ~/Documents/Malware/reports/gw_nb_3_20120125-210805/ ~/Documents/Malware/reports/gw_nb_4_20120126-223959/ ~/Documents/Malware/reports/gw_nb_5_20120127-195917/ ~/Documents/Malware/reports/gw_nb_6_20120129-115712/ ~/Documents/Malware/reports/gw_nb_7_20120204-195305/ ~/Documents/Malware/reports/gw_nb_8_20120205-192907/ ~/Documents/Malware/reports/gw_nb_9_20120206-194602/ ~/Documents/Malware/reports/gw_nb_10_20120207-201340/ ~/Documents/Malware/reports/gw_nb_11_20120208-192600/ ~/Documents/Malware/reports/gw_nb_12_20120209-202213/ ~/Documents/Malware/reports/gw_nb_13_20120210-205101/ ~/Documents/Malware/reports/gw_rub_1_20120125-210650/

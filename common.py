@@ -190,7 +190,11 @@ class TaintTagEnum:
 
     @staticmethod
     def getTaintString(theTag):
-        tagInt = int(theTag, 16)
+        try:
+            tagInt = int(theTag, 16)
+        except TypeError, typeErr:
+            if theTag == 0:
+                tagInt = theTag
         tagString = str(theTag) + ' ('
         if tagInt == TaintTagEnum.TAINT_CLEAR:
             tagString += 'No Tag)'

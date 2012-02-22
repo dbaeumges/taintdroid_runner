@@ -307,6 +307,7 @@ class RunnerThread(Thread):
         theEmulator.startLogcatRedirect(logcatRedirectFile, self.maxLogcatSize)
         
         # Switch on taint tracking
+        #theEmulator.setProperty('tdroid.global.taintmask', '7176')
         theEmulator.changeGlobalTaintLogState('1', True)
                     
         # Start all services

@@ -142,11 +142,11 @@ class CallActionLogEntry(BaseLogEntry):
     def getOverviewLogStr(self):
         return 'CallAction, dialString: %s' % (self.dialString)
 
-    def getHtmlReportColumnList(self):
+    def getHtmlReportColumnList(self, theDetailsFlag=True):
         columnList = [TaintTagEnum.getTaintString(self.tag)]
         columnList.append(self.dialString)
-        columnList.append(self.timestamp)
-        columnList.append(self.stackTraceStr)
+        if theDetailsFlag: columnList.append(self.timestamp)
+        if theDetailsFlag: columnList.append(self.stackTraceStr)
         return columnList
     
     
@@ -177,7 +177,7 @@ class CipherUsageLogEntry(BaseLogEntry):
     def getOverviewLogStr(self):
         return 'CipherUsage (%s), id: %d, tag: %s, mode: %d' % (self.action, self.id, TaintTagEnum.getTaintString(self.tag), self.mode)
 
-    def getHtmlReportColumnList(self):
+    def getHtmlReportColumnList(self, theDetailsFlag=True):
         columnList = [TaintTagEnum.getTaintString(self.tag)]
         if self.mode == CipherModeEnum.ENCRYPT_MODE:
             columnList.append('encrypt')
@@ -185,8 +185,8 @@ class CipherUsageLogEntry(BaseLogEntry):
         else:
             columnList.append('decrypt')
             columnList.append(self.output)
-        columnList.append(self.timestamp)
-        columnList.append(self.stackTraceStr)
+        if theDetailsFlag: columnList.append(self.timestamp)
+        if theDetailsFlag: columnList.append(self.stackTraceStr)
         return columnList
         
 class FileSystemLogEntry(BaseLogEntry):
@@ -218,14 +218,14 @@ class FileSystemLogEntry(BaseLogEntry):
     def getOverviewLogStr(self):
         return 'FileSystemAccess (%s), tag: %s, file: %s (%d)' % (TaintLogActionEnum.getActionString(self.action), TaintTagEnum.getTaintString(self.tag), self.filePath, self.fileDescriptor)
 
-    def getHtmlReportColumnList(self):
+    def getHtmlReportColumnList(self, theDetailsFlag=True):
         columnList = [TaintTagEnum.getTaintString(self.tag)]
         columnList.append(TaintLogActionEnum.getActionString(self.action))
         columnList.append(self.filePath)
-        columnList.append('%d' % self.taintLogId)
+        if theDetailsFlag: columnList.append('%d' % self.taintLogId)
         columnList.append(self.data)
-        columnList.append(self.timestamp)
-        columnList.append(self.stackTraceStr)
+        if theDetailsFlag: columnList.append(self.timestamp)
+        if theDetailsFlag: columnList.append(self.stackTraceStr)
         return columnList
     
 class NetworkSendLogEntry(BaseLogEntry):
@@ -259,14 +259,14 @@ class NetworkSendLogEntry(BaseLogEntry):
     def getOverviewLogStr(self):
         return 'NetworkAccess (%s), tag: %s, destination: %s:%d' % (TaintLogActionEnum.getActionString(self.action), TaintTagEnum.getTaintString(self.tag), self.destination, self.port)
 
-    def getHtmlReportColumnList(self):
+    def getHtmlReportColumnList(self, theDetailsFlag=True):
         columnList = [TaintTagEnum.getTaintString(self.tag)]
         columnList.append(TaintLogActionEnum.getActionString(self.action))
         columnList.append('%s:%d' % (self.destination, self.port))
-        columnList.append('%d' % self.taintLogId)
+        if theDetailsFlag: columnList.append('%d' % self.taintLogId)
         columnList.append(self.data)
-        columnList.append(self.timestamp)
-        columnList.append(self.stackTraceStr)
+        if theDetailsFlag: columnList.append(self.timestamp)
+        if theDetailsFlag: columnList.append(self.stackTraceStr)
         return columnList
 
 class SSLLogEntry(BaseLogEntry):
@@ -297,13 +297,13 @@ class SSLLogEntry(BaseLogEntry):
     def getOverviewLogStr(self):
         return 'SSL (%s), tag: %s, destination: %s:%d' % (TaintLogActionEnum.getActionString(self.action), TaintTagEnum.getTaintString(self.tag), self.destination, self.port)
 
-    def getHtmlReportColumnList(self):
+    def getHtmlReportColumnList(self, theDetailsFlag=True):
         columnList = [TaintTagEnum.getTaintString(self.tag)]
         columnList.append(TaintLogActionEnum.getActionString(self.action))
         columnList.append('%s:%d' % (self.destination, self.port))
         columnList.append(self.data)
-        columnList.append(self.timestamp)
-        columnList.append(self.stackTraceStr)
+        if theDetailsFlag: columnList.append(self.timestamp)
+        if theDetailsFlag: columnList.append(self.stackTraceStr)
         return columnList
 
 class SendSmsLogEntry(BaseLogEntry):
@@ -344,15 +344,15 @@ class SendSmsLogEntry(BaseLogEntry):
     def getOverviewLogStr(self):
         return 'SMS (%s), tag: %s, destination: %s (%s), source: %s, text: %s, timestamp: %s' % (TaintLogActionEnum.getActionString(self.action), TaintTagEnum.getTaintString(self.tag), self.destination, TaintTagEnum.getTaintString(self.destinationTag), self.scAddress, self.text, self.timestamp)
 
-    def getHtmlReportColumnList(self):
+    def getHtmlReportColumnList(self, theDetailsFlag=True):
         columnList = [TaintTagEnum.getTaintString(self.tag)]
         columnList.append(TaintLogActionEnum.getActionString(self.action))
         columnList.append(self.scAddress)
         columnList.append(self.destination)
         columnList.append(TaintTagEnum.getTaintString(self.destinationTag))
         columnList.append(self.text)
-        columnList.append(self.timestamp)
-        columnList.append(self.stackTraceStr)
+        if theDetailsFlag: columnList.append(self.timestamp)
+        if theDetailsFlag: columnList.append(self.stackTraceStr)
         return columnList
 
 

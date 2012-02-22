@@ -47,7 +47,7 @@ class TaintLogAnalyzer:
         logFile = open(theFile, 'r')
         for line in logFile:
             self.logLines.append(line)
-        self.numControlChars = 2
+        self.numControlChars = 1
 
     def setLogString(self, theStr):
         """
@@ -174,7 +174,9 @@ class TaintLogAnalyzer:
         - Set file path for OSFileAccess
         """
         cipherUsageDict = {}
-
+        netUsageDict = {}
+        fileSystemUsageDict = {}
+        
         filteredLogEntryList = []
         logEntryIndex = 0
         for logEntry in self.logEntryList:
@@ -228,6 +230,46 @@ class TaintLogAnalyzer:
                                                                   timestamp=logEntry.timestamp)
                         cipherUsageDict[logEntry.id] = [cipherUsageLogEntry, [logEntryIndex]]
                         self.log.info("CipherUsageLogEntry with action '%s' found without starting init" % logEntry.action)
+
+            # Network cleaning (combine multiple calls)
+            if isinstance(logEntry, NetworkSendLogEntry):
+                if logEntry.taintLogId == 0: continue
+                if netUsageDict.has_key(logEntry.taintLogId):
+                    netUsageDict[logEntry.taintLogId][0].tag = TaintTagEnum.appendTaintTags(netUsageDict[logEntry.taintLogId][0].tag, logEntry.tag)
+                    netUsageDict[logEntry.taintLogId][0].data = netUsageDict[logEntry.taintLogId][0].data + logEntry.data
+                    netUsageDict[logEntry.taintLogId][1].append(logEntryIndex)
+                    
+                else:
+                    netSendLogEntry = NetworkSendLogEntry(action=logEntry.action,
+                                                          tag=logEntry.tag,
+                                                          destination=logEntry.destination,
+                                                          port=logEntry.port,
+                                                          taintLogId=logEntry.taintLogId,
+                                                          data=logEntry.data,
+                                                          stackTraceStr=logEntry.stackTraceStr,
+                                                          stackTrace=logEntry.stackTrace,
+                                                          timestamp=logEntry.timestamp)
+                    netUsageDict[logEntry.taintLogId] = [netSendLogEntry, [logEntryIndex]]
+
+            # File system cleaning (combine multiple calls)
+            if isinstance(logEntry, FileSystemLogEntry):
+                if logEntry.taintLogId == 0: continue
+                if fileSystemUsageDict.has_key(logEntry.taintLogId):
+                    fileSystemUsageDict[logEntry.taintLogId][0].tag = TaintTagEnum.appendTaintTags(fileSystemUsageDict[logEntry.taintLogId][0].tag, logEntry.tag)
+                    fileSystemUsageDict[logEntry.taintLogId][0].data = fileSystemUsageDict[logEntry.taintLogId][0].data + logEntry.data
+                    fileSystemUsageDict[logEntry.taintLogId][1].append(logEntryIndex)
+                    
+                else:
+                    fileSystemLogEntry = NetworkSendLogEntry(action=logEntry.action,
+                                                             tag=logEntry.tag,
+                                                             fileDescriptor=logEntry.fileDescriptor,
+                                                             filePath=logEntry.filePath,
+                                                             taintLogId=logEntry.taintLogId,
+                                                             data=logEntry.data,
+                                                             stackTraceStr=logEntry.stackTraceStr,
+                                                             stackTrace=logEntry.stackTrace,
+                                                             timestamp=logEntry.timestamp)
+                    fileSystemUsageDict[logEntry.taintLogId] = [fileSystemLogEntry, [logEntryIndex]]
                 
             # Update index
             logEntryIndex += 1
@@ -241,6 +283,14 @@ class TaintLogAnalyzer:
             for id, logEntry in cipherUsageDict.iteritems():
                 delLogEntryIdxList.extend(logEntry[1])
 
+            # Net log entry
+            for id, logEntry in netUsageDict.iteritems():
+                delLogEntryIdxList.extend(logEntry[1])
+
+            # File system log entry
+            for id, logEntry in fileSystemUsageDict.iteritems():
+                delLogEntryIdxList.extend(logEntry[1])
+
             # Do drop
             self.__deleteStaleLogObjects(delLogEntryIdxList)
             
@@ -248,6 +298,15 @@ class TaintLogAnalyzer:
         # Add cleaned cipher usage objects
         for id, logEntry in cipherUsageDict.iteritems():
             self.logEntryList.append(logEntry[0])
+
+        # Add cleaned network objects
+        for id, logEntry in netUsageDict.iteritems():
+            self.logEntryList.append(logEntry[0])
+
+        # Add cleaned file system objects
+        for id, logEntry in fileSystemUsageDict.iteritems():
+            self.logEntryList.append(logEntry[0])
+            
 
     def __deleteStaleLogObjects(self, theDelLogEntryIdxList):
         """

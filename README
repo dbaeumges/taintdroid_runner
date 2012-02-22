@@ -42,6 +42,16 @@ Log files:
 ** log (main): <reportPathSuffix>_yyyyMMdd-HHmm/taintdroid_runner_main_log.log
 ** log (app): <reportPathSuffix>_yyyyMMdd-HHmm/<apkname>_log.log
 ** logcat: <reportPathSuffix>_yyyyMMdd-HHmm/<apkname>_logcat.log
+** html (main): <reportPathSuffix>_yyyyMMdd-HHmm/report.html
+** html (app): <reportPathSuffix>_yyyyMMdd-HHmm/report_app_<id>.html
+
+* json mode
+** log (main): <reportPathSuffix>_yyyyMMdd-HHmm/taintdroid_runner_main_log.log
+** log (app): <reportPathSuffix>_yyyyMMdd-HHmm/<apkname>_log.log
+** logcat: <reportPathSuffix>_yyyyMMdd-HHmm/<apkname>_logcat.log
+** json (main): <reportPathSuffix>_yyyyMMdd-HHmm/report.json
+** html (main): <reportPathSuffix>_yyyyMMdd-HHmm/report.html
+** html (app): <reportPathSuffix>_yyyyMMdd-HHmm/report_app_<id>.html
 
 
 Version 0.5:
