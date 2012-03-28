@@ -236,21 +236,27 @@ class Analyzer:
 
         return oneMatch
 
-    def evalSmsDestTagNumbers(self, theTaintLog, theApk, theBaseObj, theNumbers):
+    def evalSmsDestTagNumbers(self, theTaintLog, theApk, theBaseObj, theNumbers, theReportMode=False):
         oneMatch = False
         
         noTag = copy.deepcopy(theBaseObj)
         noTag.destinationTag = -1
         if theTaintLog.doesMatch([noTag]):
-            theNumbers['noTag'][0] += 1
-            theNumbers['noTag'][1].append(theApk)
+            if theReportMode:
+                theNumbers['noTag'][0] += len(theTaintLog.getMatchingLogEntries([noTag]))
+            else:
+                theNumbers['noTag'][0] += 1
+                theNumbers['noTag'][1].append(theApk)
             oneMatch = True
             
         contact = copy.deepcopy(theBaseObj)
         contact.destinationTagList.append(TaintTagEnum.TAINT_CONTACTS)
         if theTaintLog.doesMatch([contact]):
-            theNumbers['contact'][0] += 1
-            theNumbers['contact'][1].append(theApk)
+            if theReportMode:
+                theNumbers['contact'][0] += len(theTaintLog.getMatchingLogEntries([contact]))
+            else:
+                theNumbers['contact'][0] += 1
+                theNumbers['contact'][1].append(theApk)
             oneMatch = True
             
         deviceInfos = copy.deepcopy(theBaseObj)
@@ -260,22 +266,31 @@ class Analyzer:
         deviceInfos.destinationTagList.append(TaintTagEnum.TAINT_ICCID)
         deviceInfos.destinationTagList.append(TaintTagEnum.TAINT_DEVICE_SN)
         if theTaintLog.doesMatch([deviceInfos]):
-            theNumbers['deviceInfos'][0] += 1
-            theNumbers['deviceInfos'][1].append(theApk)
+            if theReportMode:
+                theNumbers['deviceInfos'][0] += len(theTaintLog.getMatchingLogEntries([deviceInfos]))
+            else:
+                theNumbers['deviceInfos'][0] += 1
+                theNumbers['deviceInfos'][1].append(theApk)
             oneMatch = True
             
         userInput = copy.deepcopy(theBaseObj)
         userInput.destinationTagList.append(TaintTagEnum.TAINT_USER_INPUT)
         if theTaintLog.doesMatch([userInput]):
-            theNumbers['userInput'][0] += 1
-            theNumbers['userInput'][1].append(theApk)
+            if theReportMode:
+                theNumbers['userInput'][0] += len(theTaintLog.getMatchingLogEntries([userInput]))
+            else:
+                theNumbers['userInput'][0] += 1
+                theNumbers['userInput'][1].append(theApk)
             oneMatch = True
             
         incomingData = copy.deepcopy(theBaseObj)
         incomingData.destinationTagList.append(TaintTagEnum.TAINT_INCOMING_DATA)
         if theTaintLog.doesMatch([incomingData]):
-            theNumbers['incomingData'][0] += 1
-            theNumbers['incomingData'][1].append(theApk)
+            if theReportMode:
+                theNumbers['incomingData'][0] += len(theTaintLog.getMatchingLogEntries([incomingData]))
+            else:
+                theNumbers['incomingData'][0] += 1
+                theNumbers['incomingData'][1].append(theApk)
             oneMatch = True
             
         location = copy.deepcopy(theBaseObj)
@@ -284,8 +299,11 @@ class Analyzer:
         location.destinationTagList.append(TaintTagEnum.TAINT_LOCATION_NET)
         location.destinationTagList.append(TaintTagEnum.TAINT_LOCATION_LAST)
         if theTaintLog.doesMatch([location]):
-            theNumbers['location'][0] += 1
-            theNumbers['location'][1].append(theApk)
+            if theReportMode:
+                theNumbers['location'][0] += len(theTaintLog.getMatchingLogEntries([location]))
+            else:
+                theNumbers['location'][0] += 1
+                theNumbers['location'][1].append(theApk)
             oneMatch = True
             
         other = copy.deepcopy(theBaseObj)
@@ -296,13 +314,16 @@ class Analyzer:
         other.destinationTagList.append(TaintTagEnum.TAINT_MEDIA)
         other.destinationTagList.append(TaintTagEnum.TAINT_SMS)
         if theTaintLog.doesMatch([other]):
-            theNumbers['other'][0] += 1
-            theNumbers['other'][1].append(theApk)
+            if theReportMode:
+                theNumbers['other'][0] += len(theTaintLog.getMatchingLogEntries([other]))
+            else:
+                theNumbers['other'][0] += 1
+                theNumbers['other'][1].append(theApk)
             oneMatch = True
 
         if not oneMatch:
             theNumbers['nothing'][0] += 1
-            theNumbers['nothing'][1].append(theApk)
+            if theReportMode: theNumbers['nothing'][1].append(theApk)
 
         return oneMatch
 
@@ -810,7 +831,7 @@ class Analyzer:
                                     appResult['details']['netWrite'], theReportMode=True)
                 oneMatch |= self.evalTagNumbers(taintLog, appResult['apk'], SSLLogEntry(tagList=[]), appResult['details']['ssl'], theReportMode=True)
                 oneMatch |= self.evalTagNumbers(taintLog, appResult['apk'], SendSmsLogEntry(tagList=[]), appResult['details']['sms'], theReportMode=True)
-                oneMatch |= self.evalSmsDestTagNumbers(taintLog, appResult['apk'], SendSmsLogEntry(destinationTagList=[]), appResult['details']['smsDest'])
+                oneMatch |= self.evalSmsDestTagNumbers(taintLog, appResult['apk'], SendSmsLogEntry(destinationTagList=[]), appResult['details']['smsDest'], theReportMode=True)
 
                 # Nothing happens
                 if not oneMatch:
@@ -848,7 +869,7 @@ class Analyzer:
                         overviewNumbers[0] += 1            
                     
         # Print report (per app)
-        descrDict = {'call':'Call', 'cipher':'Cipher Usage', 'fsRead':'File System Read', 'fsWrite':'File System Write', 'netRead':'Network Read', 'netWrite':'Network Write', 'ssl':'SSL', 'sms':'SMS', 'smsDest':'SMS Destination'}
+        descrDict = {'call':'Call', 'cipher':'Cipher Usage', 'fsRead':'File System Read', 'fsWrite':'File System Write', 'netRead':'Network Read', 'netWrite':'Network Write', 'ssl':'SSL', 'sms':'SMS Text', 'smsDest':'SMS Destination'}
         tagTypeList = ['deviceInfos', 'contact', 'location', 'incomingData', 'userInput', 'other', 'noTag']
         actionList = ['call', 'cipher', 'fsRead', 'fsWrite', 'netRead', 'netWrite', 'ssl', 'sms', 'smsDest']
         for appMd5, appResult in result.iteritems():
